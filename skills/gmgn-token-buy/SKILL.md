@@ -45,7 +45,7 @@ metadata:
 
 **IMPORTANT: Always use the pre-installed `gmgn-cli` binary. Never use web search, WebFetch, curl, `npx`, or gmgn.ai — the site requires login and exposes no structured data.**
 
-**⚠️ IPv6 IS NOT SUPPORTED.** On a `401`/`403` with correct credentials, check `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux) and fetch `https://ipv6.icanhazip.com`. If an IPv6 address comes back, tell the user to disable IPv6 — `gmgn-cli` works over IPv4 only.
+**⚠️ IPv6 (proxy only).** gmgn-cli forces IPv4 for direct connections (`src/index.ts` sets `family: 4`), so an IPv6 problem is only plausible when a proxy is configured. On a `401`/`403` with correct credentials AND a proxy in use, check `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux) and fetch `https://ipv6.icanhazip.com`. If an IPv6 address comes back, tell the user to disable IPv6 (or bypass the proxy) — `gmgn-cli` works over IPv4 only.
 
 ## Run
 
@@ -67,7 +67,7 @@ metadata:
 | 签名下单、卖出、限价单/条件单、多钱包批量、查订单、查 gas | `gmgn-swap`——它是本技能的**出口**，不是竞争对手 |
 | 发币方（一个人，不是一个币）值不值得跟 | `gmgn-dev-score` |
 
-- **单币尽调固定 4 个请求，与同名候选有多少个无关。** `market search` 一次就带回每个候选的池子/量/笔数/持有人/存续时长，排序与粗筛全在这一份结果里做完；**不要给每个候选各打一次 `token info`**。只有最终锁定的那一个才继续。
+- **单币尽调最多 6 个请求，与同名候选有多少个无关。**预算：`market search` 1 次 + `token info` 最多 3 次（只给粗排前 3 的候选拉权威深度做重排，见 Step 1）+ `token security` 1 次（只对最终锁定的币）+ `gas-price` 1 次。`market search` 一次就带回每个候选的池子/量/笔数/持有人/存续时长，排序与粗筛全在这一份结果里做完；**不要给每个候选各打一次 `token info`**。已锁定的币若已在重排批里拉过 `token info`，复用那份结果、不重打；只有最终锁定的那一个才继续走 `token security` 与 Step 3。
 - **只覆盖 9 条链**：`sol` `eth` `bsc` `base` `arbitrum` `hyperevm` `robinhood` `arc` `stable`。这是刻意的边界——只在能做完整 GMGN 搜币+行情+安检的链上下单。其余链的处理见第 0 步与 `## Rules` 第 4–6 条。
 - 全是读接口，只需 API Key，不需要私钥（私钥只有 gmgn-swap 下单才用）。凭证由 CLI 自己管，本技能不读、不存、不传。
 - 被限流（`RATE_LIMIT_BANNED`）时读 `reset_at` 等到解封再试，**期间绝不重试**——每重试一次封禁延长 5 秒。
@@ -105,8 +105,8 @@ gmgn-cli market search -q <用户给的名称/符号/CA> [--chain <链>] --order
 
 - **一次调用就返回全部同名候选**，每条自带流动池、24h 量、成交笔数、持有人数、存续时长，排序与粗筛全在这一份结果里做完。
 - **消歧的四条判据**：模糊命中先剔除 → 命中方式分档（地址 > 符号 > 名称 > 去分隔符一致 > 模糊）→ 同档内比四元几何平均分 → 再乘存续时长先验。自动锁定只有两条：唯一一个同时过深度与量的阈值，或第一名领先第二名 5 倍以上。全在 `references/resolution.md`。
-- **粗排不定生死**：给排名靠前的候选拉过 `token info` 的权威深度后必须重排一次。实测搜 `MEME` 粗排第一的 eth 同名币，权威 24h 成交额只有 $26.95K。
-- `unknown command 'search'` 时**不要换榜单命令代替**。实测过：已发布的 gmgn-cli 还没有 `market search`，模型会自动改用 `market hot-searches` / `market trending` / `market trenches` 去按名字翻合约——**这三个都不能用来做名字解析**，它们按热度和涨幅排序，翻到的很可能正是仿盘，而防仿盘是本技能存在的全部理由。正确做法是告诉用户升级 gmgn-cli、或直接给合约地址从 Step 2 开始，然后停止。
+- **粗排不定生死**：给粗排前 **3** 的候选拉过 `token info` 的权威深度后必须重排一次（只拉前 3，请求预算见上文「单币尽调最多 6 个请求」）。实测搜 `MEME` 粗排第一的 eth 同名币，权威 24h 成交额只有 $26.95K。
+- `market search` 已在 gmgn-cli 1.7.2 提供（`gmgn-cli market search --help` 可验证）。只有旧版本 CLI 才会报 `unknown command 'search'`——此时**不要换榜单命令代替**。实测过：没有 `market search` 时模型会自动改用 `market hot-searches` / `market trending` / `market trenches` 去按名字翻合约——**这三个都不能用来做名字解析**，它们按热度和涨幅排序，翻到的很可能正是仿盘，而防仿盘是本技能存在的全部理由。正确做法是告诉用户升级 gmgn-cli、或直接给合约地址从 Step 2 开始，然后停止。
 
 ### Step 2 — 三道硬性闸门（量 / 深度 / 安全）+ 一道执行闸（方向）
 
@@ -117,7 +117,7 @@ gmgn-cli token info     --chain <链> --address <锁定的CA> --raw
 gmgn-cli token security --chain <链> --address <锁定的CA> --raw   # 兜底才用，安全结论优先交 gmgn-contract-dd
 ```
 
-**关键字段**：量取 `price.volume_24h` / `swaps_1h`；深度取 `pool` 单边口径；**方向取 `price.price` vs `price.price_5m`、以及各窗口的 `buy_volume_*` vs `sell_volume_*`**；持有人取 `holder_count`；画像取 `stat.*` 与 `wallet_tags_stat.*`。安检字段**分链**，跨链读会把蓝筹误判成风险币。取法与分链对照表见 `references/fields.md`，阈值见 `references/thresholds.md`。
+**关键字段**：量取 `price.volume_24h` / `price.swaps_1h`；深度取 `pool` 单边口径；**方向取 `price.price` vs `price.price_5m`、以及各窗口的 `price.buy_volume_*` vs `price.sell_volume_*`**；持有人取 `holder_count`；画像取 `stat.*` 与 `wallet_tags_stat.*`。安检字段**分链**，跨链读会把蓝筹误判成风险币。取法与分链对照表见 `references/fields.md`，阈值见 `references/thresholds.md`。
 
 **出口**：三道硬闸（量 / 深度 / 安全）全过 → 进 Step 3；**硬闸**任一项判"不通过"或"数据缺失" → **不下单**，按 `## Display Templates` 出「不建议买入」。硬闸每项都要落成 `通过 / 不通过 / 数据缺失` 三态之一，**数据缺失按不通过处理**——拿不到检测结果不等于没问题。
 
@@ -141,7 +141,7 @@ gmgn-cli gas-price --chain <链> --raw
 
 **出口**：用户在对话里**明确确认** → 把链、合约、金额、滑点、gas 档位、防夹开关交给 `gmgn-swap` 提交，由它用交易权限的 Key + 私钥签名下单并回报交易哈希；否决或没明确回复 → 不移交。**本技能到此为止，不自行调用下单接口、不碰私钥。**
 
-**方向判执行降级时，确认要拆成两问**：① 确认这一单（币、金额、滑点），② 确认接受降级后的执行方式。**不能把降级混在整单确认里一起过**——用户点头买这个币，不等于他知道自己买的不再是市价单。他坚持要市价单就按"用户已知悉并豁免"路径走，把豁免项显式列出来。移交限价单时执行方式随参数一起交给 `gmgn-swap`（`order strategy create --order-type limit_order --sub-order-type buy_low --check-price <触发价>`）。
+**方向判执行降级时，确认要拆成两问**：① 确认这一单（币、金额、滑点），② 确认接受降级后的执行方式。**不能把降级混在整单确认里一起过**——用户点头买这个币，不等于他知道自己买的不再是市价单。他坚持要市价单就按"用户已知悉并豁免"路径走，把豁免项显式列出来。移交限价单时执行方式随参数一起交给 `gmgn-swap`，必须带齐必填 flag（gmgn-cli 1.7.2 `order strategy create` 的 requiredOption + 运行时校验）：`order strategy create --chain <链> --from <钱包地址> --base-token <CA> --quote-token <报价代币地址> --order-type limit_order --sub-order-type buy_low --check-price <触发价> --amount-in <金额>（或 `--amount-in-percent` <百分比>） --slippage <滑点>（或 `--auto-slippage`）`。其中 `--check-price` 是 limit_order 的触发价（必填）；`--amount-in` 与 `--amount-in-percent` 二选一，`--slippage` 与 `--auto-slippage` 二选一。
 
 - 订单四件套：买入金额（**用户原话的数额与币种，不替他换算或调整**）、滑点、防夹（默认开）、预估到手数量与价格冲击。
 - **执行方式**：方向闸判"通过"时是市价单，卡里不必多写；判"执行降级"时必须写出降级后的执行方式——限价单@触发价（触发价按 `thresholds.md` 三、的公式从 `price.price` 与 `price.price_5m` 推导，并标明是推导值）、建议等待（写清等什么条件收敛）、减小金额，三者至少给一个，降级理由与读到的数写进第 7 节。**降级不改滑点公式**——`|5 分钟涨跌幅| × 0.5` 那一项已经在吃波动了。

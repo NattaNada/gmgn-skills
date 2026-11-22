@@ -107,7 +107,7 @@ Only these fields are confirmed against the live API. Anything else — degrade 
 | Field | Meaning |
 |---|---|
 | `dev.creator_address` | resolve a token address to its dev — the entry point for token-address questions |
-| `dev.creator_token_status` | `creator_hold` = still holding; anything containing `sell` = he sold his own bag; `creator_close` = position closed (check `creator_token_balance`, and do not assume a sale — it can be closed with no `sell` row anywhere in the activity feed) |
+| `dev.creator_token_status` | `creator_hold` = still holding; anything containing `sell` = he sold his own bag; `creator_close` = position closed (check `creator_token_balance`, and do not assume a sale — it can be closed with no `sell` row anywhere in the activity feed). The live API returns `creator_hold` / `creator_close` (verified live); the bare `hold` / `sell` spellings documented in older material are not what the API returns — the script also accepts a bare `hold` as holding, defensively, but never document it as the API value. |
 | `to_address` / `from_address` | counterparty on a `transfer_out` / `transfer_in` row — this is how a sibling wallet is found |
 | `token.total_supply` | present on activity rows; `token_amount / total_supply` gives the share of supply moved |
 | `common.fund_from_address` | from `portfolio stats` — the address that funded this wallet. Populated even when `common.fund_from` is empty; use `_address` |
@@ -123,10 +123,12 @@ Only these fields are confirmed against the live API. Anything else — degrade 
 `robinhood` is a real chain hosting tokenized-stock tickers with the `longxyz` launchpad — do not assume a `0x…` address is on BSC/ETH. If `created-tokens` returns `inner_count=0, open_count=0`, probe the other chains before concluding the address is not a dev.
 
 **How to probe, when the chain is unknown.** Narrow by address format first — a base58 address is `sol`
-only (1 call); a `0x…` address is one of `bsc` / `base` / `eth` / `robinhood` / `arc` / `stable` (6 calls).
+only (1 call); a `0x…` address is one of the 10 EVM chains the CLI accepts for reads:
+`bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche` /
+`elysium` (10 calls).
 Then fire those `created-tokens` calls **sequentially with no sleep between them**: each call is a ~0.55s
-round trip, so 6 chains resolve in ~3.3s, and the CLI's own pacing is already sufficient — adding a
-defensive `sleep 3` per chain turns a 3s step into 21s and buys nothing.
+round trip, so 10 chains resolve in ~5.5s, and the CLI's own pacing is already sufficient — adding a
+defensive `sleep 3` per chain turns a 5.5s step into ~35s and buys nothing.
 
 **Do not parallelise the probe.** Measured: 7 concurrent `created-tokens` calls return in 0.67s but 2 of
 them come back with empty stdout, and a second burst a few seconds later had *every* chain refused — the

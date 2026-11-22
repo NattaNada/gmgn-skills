@@ -1,6 +1,6 @@
 ---
 name: gmgn-cooking
-description: "[FINANCIAL EXECUTION] Create and launch meme coins and crypto tokens on launchpads (Pump.fun, FourMeme, Bonk, BAGS, Flap, Klik, Clanker, etc.) via bonding curve fair launch, or query token creation stats by launchpad via GMGN API. Use when user asks to create a token, launch a meme coin, cook a coin, deploy on a launchpad, or check launchpad creation stats on Solana, BSC, or Base."
+description: "[FINANCIAL EXECUTION] Create and launch meme coins and crypto tokens on launchpads (Pump.fun, FourMeme, Bonk, BAGS, Flap, Klik, Clanker, etc.) via bonding curve fair launch, or query token creation stats by launchpad via GMGN API. Use when user asks to create a token, launch a meme coin, cook a coin, deploy on a launchpad, or check launchpad creation stats on Solana, BSC, Base, or Robinhood Chain."
 argument-hint: "stats | [create --chain <chain> --dex <dex> --from <addr> --name <name> --symbol <sym> --buy-amt <n> (--image <base64> | --image-url <url>)]"
 metadata:
   cliHelp: "gmgn-cli cooking --help"
@@ -12,7 +12,7 @@ metadata:
 
 **IMPORTANT: Do NOT guess field names or values. When a field's meaning is unclear, look it up in the Response Fields sections below before using it.**
 
-**⚠️ IPv6 NOT SUPPORTED: If you get a `401` or `403` error and credentials look correct, check for IPv6 immediately: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user immediately: "Please disable IPv6 on your network interface — gmgn-cli commands only work over IPv4."**
+**⚠️ IPv6 NOT SUPPORTED (proxy case only): `src/index.ts` already forces IPv4 for direct connections, so do NOT ask the user to disable IPv6 for a direct connection. Only if the user is behind a proxy and you get a `401` or `403` error with credentials that look correct, check for IPv6: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user: "Please disable IPv6 on your network interface / proxy — gmgn-cli commands only work over IPv4."**
 
 Use the `gmgn-cli` tool to create a token on a launchpad platform or query token creation statistics per launchpad. **Requires private key** (`GMGN_PRIVATE_KEY` in `.env`) for `cooking create`.
 
@@ -20,7 +20,18 @@ Use the `gmgn-cli` tool to create a token on a launchpad platform or query token
 
 - **Bonding curve** — Most launchpad platforms (Pump.fun, FourMeme, Flap, etc.) launch tokens on an internal bonding curve. The token price rises as buyers enter. Once the threshold is reached, the token "graduates" to an open DEX (e.g. Raydium on SOL, PancakeSwap on BSC). Token creation happens on the bonding curve — not the open market.
 
-- **`--buy-amt` is in human units** — `--buy-amt` is expressed in full native token units, not smallest unit. `0.01` = 0.01 SOL. `0.05` = 0.05 BNB. Always confirm the human-readable amount with the user before executing.
+- **`--buy-amt` is in human units** — `--buy-amt` is expressed in full native token units, not smallest unit. `0.01` = 0.01 SOL. `0.05` = 0.05 BNB. Always confirm the human-readable amount with the user before executing — and see the **Approval Gate (REQUIRED)** below: the amount alone is not the whole approval; the user must confirm the full launch summary card.
+
+## Approval Gate (REQUIRED — before ANY `cooking create`)
+
+Before running `cooking create`, these numbered steps are MANDATORY and cannot be skipped — even if the user already said "don't ask, just launch". The user's initial instruction ("launch a token") is NOT approval of the final parameters; only an explicit "yes, execute" on the launch summary card below counts.
+
+1. **Show the complete launch summary card** to the user and wait for an explicit reply ("ya, eksekusi" / "yes, execute"). The card must list: chain, launchpad (`--dex`), from wallet address, token name, symbol, description/website/twitter/telegram if any, initial buy amount in human-readable native units AND in USD if a price is available, slippage (or `--auto-slippage`), logo source (file path or URL), fee-share / rate-conf splits if any (with percentages), auto-sell config (`--sell-configs`) if any, buy/sniper wallets and their amounts if any, raised token if any, and fees (`--priority-fee`, `--tip-fee`, `--gas-price`, `--anti-mev`).
+2. **Show the real-funds warning on the card itself**: "⚠️ This deploys a REAL token contract and spends REAL funds (initial buy) on-chain. It cannot be undone once confirmed. Confirm only if every parameter above is exactly right."
+3. **Wait for the user's explicit confirmation.** Do NOT execute on silence, on the original "launch X" message, or on an implied yes. If the user changes any parameter, rebuild the card and ask again.
+4. **Only then run `cooking create`**, exactly as shown on the approved card. One execution per approval — a second launch needs a new card and a new confirmation.
+
+There is no `--dry-run` flag in `gmgn-cli` 1.7.2 (verified: no such option in `src/` or `gmgn-cli cooking create --help`) — never claim a dry-run was performed; the order card above is the only pre-execution preview.
 
 - **`--dex` identifiers** — Each launchpad has a fixed identifier passed to `--dex`. These are not free-form names — use only the identifiers listed in the Supported Launchpads table. Never guess a `--dex` value not in that table.
 
@@ -30,7 +41,7 @@ Use the `gmgn-cli` tool to create a token on a launchpad platform or query token
 
 - **Signed auth** — `cooking create` requires both `GMGN_API_KEY` and `GMGN_PRIVATE_KEY`. The private key never leaves the machine — the CLI uses it only for local signing. `cooking stats` uses exist auth (API Key only).
 
-- **Slippage** — The initial buy is executed as part of the same transaction as token creation. Slippage applies to that buy. Use `--slippage` (integer 0–100, e.g. `30` = 30%) or `--auto-slippage`. One of the two is required when `--buy-amt` is set.
+- **Slippage** — The initial buy is executed as part of the same transaction as token creation. Slippage applies to that buy. Use `--slippage` (integer 0–100, e.g. `30` = 30%) or `--auto-slippage`. One of the two is required by the CLI (`src/commands/cooking.ts` exits with an error if neither is given) — ask the user in the Guided Launch Flow (Step 7a) and never default silently.
 
 ## Financial Risk Notice
 
@@ -39,6 +50,7 @@ Use the `gmgn-cli` tool to create a token on a launchpad platform or query token
 - Every `cooking create` command deploys an on-chain token contract and spends real funds (initial buy amount).
 - Token deployments cannot be undone once confirmed on-chain.
 - Only use this skill with funds you are willing to spend. Initial buy amounts are non-refundable.
+- **No dry-run exists in the CLI** — see the **Approval Gate (REQUIRED)** above.
 
 ## Sub-commands
 
@@ -79,6 +91,8 @@ This conversion applies to **`--buy-amt`, and the `buy_amt` field inside `--buy-
 - `cooking stats`: Only `GMGN_API_KEY` required
 - `cooking create`: Both `GMGN_API_KEY` and `GMGN_PRIVATE_KEY` must be configured in `~/.config/gmgn/.env`. The private key must correspond to the wallet bound to the API Key.
 - `gmgn-cli` installed globally — if missing, run: `npm install -g gmgn-cli`
+
+**⚠️ Credential safety — NEVER commit or share credential files:** `~/.config/gmgn/.env` (and any project `.env` / `keypair.pem` holding `GMGN_PRIVATE_KEY`) contains a plaintext private key that can execute transactions on the linked wallet. Never commit these files to git, never paste them into chat, tickets, or screenshots, and never send them to anyone. Prefer a **dedicated trading wallet with limited funds** for the key bound to this API key, so a leak cannot drain the user's main holdings. (`src/config.ts` tightens the global `.env` file to mode 0600 and warns when it is group/other-readable — keep it that way.)
 
 **IMPORTANT — Credential lookup order:** `gmgn-cli` loads `~/.config/gmgn/.env` first, then overlays any `.env` found in the **current working directory** (project-level overrides global). If credentials appear missing or wrong, check whether a `.env` in the workspace directory is shadowing the global config:
 ```bash
@@ -145,8 +159,8 @@ gmgn-cli cooking stats [--raw]
 | `--telegram` | No | Telegram group URL. Must be a valid `http(s)` URL. |
 | `--fee` | No | Base gas / fee |
 | `--priority-fee` | No | Priority fee in SOL (**SOL only**) |
-| `--tip-fee` | No | Tip fee (SOL in SOL / BSC in BNB; ignored on BASE) |
-| `--gas-price` | No | Gas price in wei (EVM chains: BSC / BASE) |
+| `--tip-fee` | No | Tip fee (SOL in SOL / BSC in BNB). (No chain-specific handling exists in `src/commands/cooking.ts` — the value is passed through raw, so any "ignored on BASE" behaviour is server-side and unverified; do not rely on it.) |
+| `--gas-price` | No | Gas price in **wei** (EVM chains: BSC / BASE). ⚠️ **UNIT TRAP — cooking `--gas-price` is WEI, but gmgn-swap `--gas-price` is GWEI** (the swap CLI converts with `gweiToWei`, the cooking CLI passes the value through raw). Never copy a gas-price value between the two skills without converting: 1 gwei = 1,000,000,000 wei. E.g. 5 gwei in swap = `--gas-price 5`; the same 5 gwei in cooking = `--gas-price 5000000000`. Passing swap-style `5` to cooking sends 5 wei (near-zero → stuck/failed tx); passing cooking-style `5000000000` to swap sends 5,000,000,000 gwei (1e9× too much). |
 | `--max-fee-per-gas` | No | Max fee per gas in wei (**EVM only**) |
 | `--max-priority-fee-per-gas` | No | Max priority fee per gas in wei (**EVM only**) |
 | `--anti-mev` | No | Enable anti-MEV protection (**SOL only**; rejected on BSC / BASE) |
@@ -157,7 +171,7 @@ gmgn-cli cooking stats [--raw]
 | `--dev-priority` | No | Dev priority fee |
 | `--dev-tip` | No | Dev tip fee |
 | `--dev-max-fee-per-gas` | No | Dev tx feeCap in wei (**EVM EIP-1559**) |
-| `--approve-vision` | No | Approve vision version: `v1` / `v2` (default: `v2`) |
+| `--approve-vision` | No | Approve vision version: `v1` / `v2` — pass explicitly if needed. The CLI sets NO default (`src/commands/cooking.ts` only forwards the flag when given); any server-side default is unverified, so do not claim `v2` is the default. |
 | `--source` | No | Traffic source identifier |
 | `--is-mayhem` | No | Enable Mayhem mode (**Pump.fun only**) |
 | `--is-cashback` | No | Enable Cashback (**Pump.fun only**) |
@@ -327,7 +341,7 @@ These tune the **execution params for the CondMarket buy/sell orders** (bundle b
 | `fee` | string | Base gas / fee; only sent when truthy |
 | `priority_fee` | string | Priority fee; only sent when truthy |
 | `tip_fee` | string | SOL Jito tip; only sent when truthy |
-| `gas_price` | string | Gas price in wei (EVM); only sent when truthy |
+| `gas_price` | string | Gas price in **wei** (EVM); only sent when truthy. ⚠️ WEI here, GWEI in gmgn-swap `--gas-price` — never copy values between skills without converting (1 gwei = 1,000,000,000 wei). |
 | `max_priority_fee_per_gas` | string | EVM EIP-1559; only sent when truthy |
 | `max_fee_per_gas` | string | EVM EIP-1559; only sent when truthy |
 | `auto_slippage` | bool | Always sent |
@@ -389,7 +403,7 @@ gmgn-cli cooking create \
   --name "Four Token" \
   --symbol FOUR \
   --buy-amt 0.05 \
-  --image "$(base64 -i /path/to/logo.png)" \
+  --image "$(base64 -w0 /path/to/logo.png)" \
   --auto-slippage \
   --raised-token USD1
 
@@ -535,6 +549,7 @@ Block explorer links:
 | sol   | `https://solscan.io/tx/<hash>` |
 | bsc   | `https://bscscan.com/tx/<hash>` |
 | base  | `https://basescan.org/tx/<hash>` |
+| robinhood | — (no explorer URL verified in this skill; use the chain's official explorer — do NOT guess the URL) |
 
 ## Guided Launch Flow
 
@@ -574,13 +589,14 @@ Ask: *"Ticker symbol?"*
 
 Wait for the user's reply (e.g. `DOGEK`). Typically 3–8 uppercase characters.
 
-### Step 4 — Logo
+### Step 4 — Logo (REQUIRED)
 
-Ask: *"Logo image? (file path or URL — skip to launch without one)"*
+Ask: *"Logo image? (file path or URL)"*
 
-- **File path** → silently run `base64 -i <path>` and pass the result to `--image`. Do not mention "base64" to the user.
+**A logo is REQUIRED — there is no skip option.** The CLI hard-requires it: `src/commands/cooking.ts` exits with an error (`process.exit(1)`) if neither `--image` nor `--image-url` is given. Do not tell the user they can launch without one.
+
+- **File path** → silently run `base64 -w0 <path>` (Linux; GNU base64 wraps output at 76 columns without `-w0`, which would inject newlines into the `--image` string) and pass the result to `--image`. On macOS, `base64` does not support `-w0` — use `base64 -i <path> | tr -d '\n'` instead. Do not mention "base64" to the user. **Validate the encoded string contains no newline before sending it.**
 - **URL** → use `--image-url` directly.
-- **Skip / none** → proceed without a logo. Note that most platforms accept this, but it reduces visibility.
 
 ### Step 5 — Initial Buy Amount
 
@@ -623,24 +639,31 @@ The relevant options per platform:
 
 If the user says "defaults" / "skip" / "none", proceed with none of these set.
 
-### Step 8 — Execute
+### Step 7a — Slippage (REQUIRED)
 
-Once all required information is collected, execute the request directly. Include any advanced options from Step 7 in the execution output.
+Ask: *"Slippage for the initial buy — a number (e.g. 30 = 30%), or auto-slippage?"*
+
+The CLI hard-requires one of `--slippage` or `--auto-slippage` (`src/commands/cooking.ts` exits with an error if neither is given). Do NOT default silently: if the user has no preference, suggest `--auto-slippage` for a volatile new token and record the choice explicitly before Step 8.
+
+### Step 8 — Approval Gate, then Execute
+
+Do NOT execute yet. First complete the **Approval Gate (REQUIRED)** above: show the full launch summary card (chain / dex / name / symbol / buy-amt / slippage / logo / fee-share / auto-sell / fees), show the real-funds warning on the card, and wait for the user's explicit "yes, execute". Only after that confirmation, run `cooking create` exactly as shown on the approved card. Include any advanced options from Step 7 in the execution output. The user's earlier answers are NOT approval of the final parameters.
 
 ---
 
 ## Execution Guidelines
 
+- **[REQUIRED] Approval gate — before ANY execution** — Never run `cooking create` without completing the **Approval Gate (REQUIRED)** above: show the full launch summary card, show the real-funds warning on the card, and wait for the user's explicit "yes, execute". The user's initial "launch X" instruction is NOT approval of the final parameters. One approval covers exactly one execution.
 - **[REQUIRED] `--dex` validation** — Before running, look up the user's named platform in the Supported Launchpads table and resolve to the correct `--dex` identifier. Never guess or pass a freeform platform name. If the chain/platform combination is not in the table, tell the user it is unsupported.
-- **Slippage requirement** — Either `--slippage` or `--auto-slippage` must be provided. If the user did not specify, suggest `--auto-slippage` for volatile new tokens or ask for a preference.
-- **Image handling** — If the user provides a file path, run `base64 -i <path>` and pass the result to `--image`. If they provide a URL, use `--image-url`. If neither is provided, request one — most platforms require a logo.
+- **Slippage requirement** — Either `--slippage` or `--auto-slippage` must be provided (the CLI exits if neither is given). Collect it in Step 7a of the Guided Launch Flow — ask the user; if they have no preference, suggest `--auto-slippage` and record the choice. Never default silently.
+- **Image handling** — A logo is REQUIRED: the CLI exits if neither `--image` nor `--image-url` is given. If the user provides a file path, run `base64 -w0 <path>` (Linux) or `base64 -i <path> | tr -d '\n'` (macOS) and pass the result to `--image`; validate the encoded string contains no newline before sending. If they provide a URL, use `--image-url`.
 - **Fee-share / bps inputs** — Always collect shares as percentages, then convert to basis points yourself (50% → `5000`). Never ask for a raw bps value.
 - **Address validation** — Validate `--from` wallet address format before submitting:
   - `sol`: base58, 32–44 characters
   - `bsc` / `base`: `0x` + 40 hex digits
 - **Chain-wallet compatibility** — SOL addresses are incompatible with EVM chains and vice versa. Warn the user and abort if the address format does not match the chain.
 - **Order polling** — After `cooking create`, if `status` is `pending`, poll `order get` every 2 seconds up to 30 seconds. The token address is in `report.output_token`. Do not report success until `status` is `confirmed`.
-- **Credential sensitivity** — `GMGN_API_KEY` and `GMGN_PRIVATE_KEY` can execute real transactions. Never log, display, or expose these values.
+- **Credential sensitivity** — `GMGN_API_KEY` and `GMGN_PRIVATE_KEY` can execute real transactions. Never log, display, or expose these values. Never commit `~/.config/gmgn/.env`, any project `.env`, or `keypair.pem` to git, and never share them with anyone. Prefer a dedicated trading wallet with limited funds for the key bound to this API key.
 
 ## Notes
 

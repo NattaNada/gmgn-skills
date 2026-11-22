@@ -1,6 +1,6 @@
 ---
 name: gmgn-wallet-review
-description: A short trading portrait of ONE wallet address — a single style tag (磨损户 / P小将 / 印钞机 … plus a speed subtitle), one sentence recapping its record and one sentence of next-step advice, for 1D / 7D / 30D / 全部, voiced 你 for the user's own wallet and 他 for anyone else's; SOL and all 8 EVM chains, chain auto-detected for a 0x address; can render it as a page. USE WHEN a wallet address comes with a request for a brief recap or for what to change — 「帮我复盘一下这个钱包」, 「一句话总结他的战绩」, 「我的打法有什么问题」, 「我钱包下一步该怎么打」, 「交易画像」, 「钱包风格加建议，简短点」, "sum up this wallet in one line". NOT FOR — a bare address, 「能不能跟」 or 「跟着他买我能吃到吗」 (gmgn-wallet-analysis); the full tag-and-badge breakdown or 「是不是机器人」 (gmgn-wallet-style); scores or copy-trade backtests (gmgn-wallet-score); a creator's launches (gmgn-dev-score); current holdings (gmgn-portfolio); a token address or a buy (gmgn-contract-dd, gmgn-token-buy). TIE-BREAK — 打法 / 风格 / 战绩 paired with 问题, 建议, 复盘 or 一句话 routes here; asked alone, they go to the skills above.
+description: A short trading portrait of ONE wallet address — a single style tag (磨损户 / P小将 / 印钞机 … plus a speed subtitle), one sentence recapping its record and one sentence of next-step advice, for 1D / 7D / 30D / 全部, voiced 你 for the user's own wallet and 他 for anyone else's; SOL and 8 of 10 EVM chains (probe), chain auto-detected for a 0x address; can render it as a page. USE WHEN a wallet address comes with a request for a brief recap or for what to change — 「帮我复盘一下这个钱包」, 「一句话总结他的战绩」, 「我的打法有什么问题」, 「我钱包下一步该怎么打」, 「交易画像」, 「钱包风格加建议，简短点」, "sum up this wallet in one line". NOT FOR — a bare address, 「能不能跟」 or 「跟着他买我能吃到吗」 (gmgn-wallet-analysis); the full tag-and-badge breakdown or 「是不是机器人」 (gmgn-wallet-style); scores or copy-trade backtests (gmgn-wallet-score); a creator's launches (gmgn-dev-score); current holdings (gmgn-portfolio); a token address or a buy (gmgn-contract-dd, gmgn-token-buy). TIE-BREAK — 打法 / 风格 / 战绩 paired with 问题, 建议, 复盘 or 一句话 routes here; asked alone, they go to the skills above.
 argument-hint: "--chain <sol|bsc|base|eth|…> --wallet <address> [--period 1d|7d|30d|all] [--voice self|other]"
 metadata:
   cliHelp: "gmgn-cli portfolio stats --help && gmgn-cli portfolio profits --help && gmgn-cli portfolio activity --help && gmgn-cli portfolio holdings --help && gmgn-cli portfolio created-tokens --help"
@@ -226,12 +226,17 @@ Hold times in sentences: <60s → `N 秒`, <1h → `N 分钟`, <1d → `X.X 小�
 
 The tag rules below are the same as `freq_level` / `pnl_level` / `style_title` / `style_speed` in
 `gmgn-wallet-analysis/analyze.py` (and `gmgn-wallet-style`), so a wallet gets the same title
-whichever skill the question lands on. The single deliberate difference is the L4 净盈 line
-(see below). If you change a threshold here, change it there too.
+whichever skill the question lands on. If you change a threshold here, change it there too.
 
 **Too few tokens → no reading.** If the period's `tn` is below 5 (for 1D and 全部, use the 7D
 `tn`), there is no tag, recap or next step for that period. Output 「{period} 交易太少（不足 5 个币），
 暂不给结论」 instead, the same "no read" the production dossier gives a sub-5-token wallet.
+
+**Thin sample → hedged tag.** If the period's `buy + sell < 20`, still give the tag, but add ⚠️
+and state the exact trade count (e.g. 「7D 仅 8 笔交易」) — the same gate as
+`gmgn-wallet-style` Step 6a and `analyze.py`. `tn` (`pnl_stat.token_num`) cannot be trusted as
+a sample size: it is effectively all-time (a wallet with 8 real trades has been seen with
+`token_num=202`), so the gate is on trades, never on `tn`.
 
 **Frequency** `perDay = (buy + sell) ÷ days` → L1 <1, L2 <10, L3 ≤50, otherwise L4 (exactly 10
 trades a day is L3; exactly 50 is L3).
@@ -241,7 +246,7 @@ trades a day is L3; exactly 50 is L3).
 1. P5 — full period ∧ `pnl` > 0.5 ∧ `tn` ≥ 5 ∧ (**winrate ≥ 0.5 or `lt50` < 0.15** — one
    corroborating shape is enough). Memecoin P&L is low-hit-rate with a fat right tail;
    requiring both drops genuine top performers to P4.
-2. P4 — `pnl` > 0.1, **or** L4 ∧ `pnl` > 0.03 ∧ realized > 0
+2. P4 — `pnl` > 0.1
 3. P1 — full period ∧ `lt50` ≥ 0.4 ∧ realized < 0
 4. P3 — |`pnl`| ≤ 0.1
 5. P2 — realized < 0 or `pnl` < 0
@@ -253,13 +258,6 @@ trades a day is L3; exactly 50 is L3).
 | **L3** | 🌾 收割机 | ⚔️ P小将 | 🌀 陀螺 | 💸 手续费贡献者 | 🩸 连败突击兵 |
 | **L2** | 🦅 老猎手 | 📈 稳步选手 | ☕ 空转户 | 🐑 亏损散户 | 🕳️ 深套户 |
 | **L1** | 🗡️ 一击必杀 | 🧘 佛系赢家 | 👀 观望者 | 💧 试水亏损 | ⚰️ 一把归零 |
-
-The L4 exception exists because 全自动P机 means exactly "thin margin, huge volume". A machine-speed
-wallet re-buys constantly, which inflates cumulative cost and keeps its ratio low even when it
-is clearly making money: one wallet made $73K in a week at 8.4%. 磨损户 is kept for machine-speed
-wallets whose ratio is near zero or negative, where fees really do take the gains back. This
-threshold is specific to this skill; `gmgn-wallet-style` and `analyze.py` still use 10% for every
-level, so at machine speed with a 3–10% ratio this skill says 全自动P机 where they say 磨损户.
 
 **Speed** from the median round trip: <60s ⚡ 秒杀流, <24h 🐇 日内流, <7d 🧭 波段流, otherwise
 💎 长持流. Omit it if there's no speed reading, i.e. fewer than 3 round trips or a median of 0 s.
@@ -385,7 +383,7 @@ Add one short note only when it's needed:
   data, so those rules can't fire there.
 - A section was skipped because of a rate limit or missing `holdings` access. Say which, in one line.
 - The user asks "为什么". Answer with the one or two numbers behind it, e.g. 「日均 730 笔、7D 收益率
-  2.1%，没到机器级 3% 的净盈线，所以落在磨损户」. Don't explain the method unprompted.
+  2.1%，没到 10% 的净盈线，所以落在磨损户」. Don't explain the method unprompted.
 
 GMGN's own labels (`common.tags`, e.g. `wash_trader`) are deliberately **not** shown: the module
 describes the trader's own behaviour, not third-party labels. If the user asks whether the wallet carries GMGN labels, quote
@@ -462,9 +460,8 @@ wallet page.
 ## Known limitations — mention them when they matter
 
 - **The P axis is a ratio, so busy wallets read low.** Realized ÷ cumulative cost shrinks as a
-  wallet re-buys. Step 4 already lowers the 净盈 line to 3% for machine-speed (L4) wallets.
-  Below machine speed the 10% line still applies, so an L3 wallet making real money at 6% lands
-  on 陀螺. The recap states the dollar result first, so the reader isn't misled. Don't patch the
+  wallet re-buys. The 10% 净盈 line applies at every level, the same as `gmgn-wallet-style` and
+  `analyze.py` — an L4 wallet making real money at 6% lands on 磨损户, not 全自动P机. The recap states the dollar result first, so the reader isn't misled. Don't patch the
   threshold per wallet.
 - **Behaviour metrics come from recent data only** (~200 activity rows, ~300 positions). On a
   bot wallet that is hours to a day of history, and it doesn't change with the period. That

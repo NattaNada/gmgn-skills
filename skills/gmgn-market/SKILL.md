@@ -1,8 +1,8 @@
 ---
 name: gmgn-market
-description: Get crypto and meme token price charts (K-line, candlestick, OHLCV), trending meme coin rankings by volume, newly launched tokens on launchpads (pump.fun, fourmeme, letsbonk, Raydium, etc.), the hot-search ranking (most-searched tokens), and search for a specific token or wallet by name, symbol, contract address, wallet address, or ENS via GMGN API on Solana, BSC, Base, or Ethereum. Use when user asks for price chart, trending tokens, what's pumping, hot coins, most searched tokens, new launches, token signals, wants to look up / find / search a specific token or wallet by name or address, or wants to discover early-stage opportunities.
+description: Get crypto and meme token price charts (K-line, candlestick, OHLCV), trending meme coin rankings by volume, newly launched tokens on launchpads (pump.fun, fourmeme, letsbonk, Raydium, etc.), the hot-search ranking (most-searched tokens), and search for a specific token or wallet by name, symbol, contract address, wallet address, or ENS via GMGN API across 11 chains (Solana, BSC, Base, Ethereum, Arbitrum, HyperEVM, Robinhood, Arc, Stable, Avalanche, Elysium). Use when user asks for price chart, trending tokens, what's pumping, hot coins, most searched tokens, new launches, token signals, wants to look up / find / search a specific token or wallet by name or address, or wants to discover early-stage opportunities.
 metadata:
-  argument-hint: "kline --chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium> --address <token_address> --resolution <1s|30s|1m|5m|15m|1h|4h|1d> [--from <unix_ts>] [--to <unix_ts>] | trending --chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium> --interval <1m|5m|1h|6h|24h> | trenches --chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium> | signal --chain <sol|bsc|base|eth|arbitrum|robinhood|arc|stable|avalanche|elysium> | hot-searches [--chain <sol|bsc|base|eth|robinhood...>] [--interval <1m|5m|1h|6h|24h>] | search --query <name|symbol|address|ens> [--chain <chain>] [--launchpad-platform <p>...] [--is-og <true|false>] [--is-launched <true|false>] [--order-by weight]"
+  argument-hint: "kline --chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium> --address <token_address> --resolution <1s|30s|1m|5m|15m|1h|4h|1d> [--from <unix_ts>] [--to <unix_ts>] | trending --chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium> --interval <1m|5m|1h|6h|24h> | trenches --chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium> | signal --chain <sol|bsc|base|eth|arbitrum|robinhood|arc|stable|avalanche|elysium> | hot-searches [--chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium>] [--interval <1m|5m|1h|6h|24h>] | search --query <name|symbol|address|ens> [--chain <chain>] [--launchpad-platform <p>...] [--is-og <true|false>] [--is-launched <true|false>] [--order-by weight]"
   cliHelp: "gmgn-cli market --help"
 ---
 
@@ -12,7 +12,7 @@ metadata:
 
 **IMPORTANT: Do NOT guess field names or values. When a field's meaning is unclear, look it up in the Response Fields sections below before using it.**
 
-**⚠️ IPv6 NOT SUPPORTED: If you get a `401` or `403` error and credentials look correct, check for IPv6 immediately: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user immediately: "Please disable IPv6 on your network interface — gmgn-cli commands only work over IPv4."**
+**⚠️ IPv6 (proxy only): gmgn-cli forces IPv4 for direct connections (`src/index.ts` sets `family: 4`), so an IPv6 problem is only plausible when a proxy is configured. If you get a `401` or `403` error, credentials look correct, AND a proxy is in use, check for IPv6: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user immediately: "Please disable IPv6 on your network interface, or bypass the proxy — gmgn-cli commands only work over IPv4."**
 
 Use the `gmgn-cli` tool to query K-line data for a token, browse trending tokens, or view Trenches token lists.
 
@@ -104,19 +104,19 @@ The response is an object with a `list` array. Each element in `list` is one can
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `time` | number | Candle open time — Unix timestamp in **seconds** |
+| `time` | number | Candle open time — Unix timestamp in **milliseconds** (13 digits, verified live 2026-11-18) |
 | `open` | string | Opening price in USD at the start of the period |
 | `close` | string | Closing price in USD at the end of the period |
 | `high` | string | Highest price in USD during the period |
 | `low` | string | Lowest price in USD during the period |
-| `volume` | string | Trading volume in **base token units** (number of tokens traded) |
-| `amount` | string | Trading volume in **USD** (dollar value of all trades in this period) |
+| `volume` | string | Trading volume in **USD** (dollar value of all trades in this period) |
+| `amount` | string | Trading volume in **base token units** (number of tokens traded) |
 
 **Important distinctions (naming is counterintuitive — do not guess):**
-- `volume` = token count (e.g. `5379110` means ~5.38M tokens changed hands)
-- `amount` = USD dollar value (e.g. `1214` means ~$1,214 traded) — use this for "how much was traded in USD"
-- For tokens not priced at $1, `volume` and `amount` will differ by orders of magnitude (e.g. $1,214 amount = 5,379,110 tokens for a $0.0002 token)
-- To get **total USD volume over a time range**, sum `amount` across all candles in the range
+- `volume` = USD dollar value (e.g. `1214` means ~$1,214 traded) — use this for "how much was traded in USD"
+- `amount` = token count (e.g. `5379110` means ~5.38M tokens changed hands)
+- For tokens not priced at $1, `volume` and `amount` will differ by orders of magnitude (e.g. $1,214 volume = 5,379,110 amount for a $0.0002 token)
+- To get **total USD volume over a time range**, sum `volume` across all candles in the range
 - To get **price trend**, read `close` values in chronological order (`time` ascending)
 - To detect **volatility**, compare `high` vs `low` within each candle
 - Candles are returned in chronological order (oldest first)
@@ -206,7 +206,7 @@ gmgn-cli market kline \
 
 # Raw output for further processing
 gmgn-cli market kline --chain sol --address <addr> \
-  --resolution 5m --from <ts> --to <ts> --raw | jq '.[]'
+  --resolution 5m --from <ts> --to <ts> --raw | jq '.list[]'
 
 # ETH token kline — last 24h, 1h candles (macOS)
 gmgn-cli market kline \
@@ -771,10 +771,10 @@ gmgn-cli market trenches --chain sol \
 gmgn-cli market trenches --chain sol --type completed \
   --filter-preset strict --sort-by smart_degen_count --raw
 
-# Custom filter — no wash trading, rug_ratio <= 0.2, at least 1 smart degen
+# Custom filter — safe preset (rug_ratio <= 0.3, bundler/insider <= 0.3) tightened to rug_ratio <= 0.2, at least 1 smart degen
 gmgn-cli market trenches --chain sol \
   --type new_creation --type near_completion \
-  --exclude-wash-trading --max-rug-ratio 0.2 --min-smart-degen 1 \
+  --filter-preset safe --max-rug-ratio 0.2 --min-smart-degen-count 1 \
   --sort-by smart_degen_count --raw
 
 # BSC — safe screen on new tokens from fourmeme
@@ -788,7 +788,7 @@ gmgn-cli market trenches --chain sol --type completed \
 
 # Find tokens with many holders and strong 1h swap activity
 gmgn-cli market trenches --chain sol --type completed \
-  --min-holders 100 --min-swaps 50 \
+  --min-holder-count 100 --min-swaps-24h 50 \
   --sort-by swaps_1h --raw
 ```
 
@@ -912,25 +912,25 @@ gmgn-cli market trenches --chain eth --raw \
 # All three categories at once
 gmgn-cli market trenches --chain arc --raw \
   --type new_creation --type near_completion --type completed \
-  --launchpad-platform dyorfun_v3 --launchpad-platform dyorswap --launchpad-platform trench --launchpad-platform onmifun --launchpad-platform sharcfun --launchpad-platform klik \
+  --launchpad-platform dyorfun_v3 --launchpad-platform dyorswap --launchpad-platform trench --launchpad-platform onmidotfun --launchpad-platform sharcfun --launchpad-platform klik \
   --limit 80
 
 # New creation only
 gmgn-cli market trenches --chain arc --raw \
   --type new_creation \
-  --launchpad-platform dyorfun_v3 --launchpad-platform dyorswap --launchpad-platform trench --launchpad-platform onmifun --launchpad-platform sharcfun --launchpad-platform klik \
+  --launchpad-platform dyorfun_v3 --launchpad-platform dyorswap --launchpad-platform trench --launchpad-platform onmidotfun --launchpad-platform sharcfun --launchpad-platform klik \
   --limit 80
 
 # Near completion only
 gmgn-cli market trenches --chain arc --raw \
   --type near_completion \
-  --launchpad-platform dyorfun_v3 --launchpad-platform dyorswap --launchpad-platform trench --launchpad-platform onmifun --launchpad-platform sharcfun --launchpad-platform klik \
+  --launchpad-platform dyorfun_v3 --launchpad-platform dyorswap --launchpad-platform trench --launchpad-platform onmidotfun --launchpad-platform sharcfun --launchpad-platform klik \
   --limit 80
 
 # Completed (open market) only
 gmgn-cli market trenches --chain arc --raw \
   --type completed \
-  --launchpad-platform dyorfun_v3 --launchpad-platform dyorswap --launchpad-platform trench --launchpad-platform onmifun --launchpad-platform sharcfun --launchpad-platform klik \
+  --launchpad-platform dyorfun_v3 --launchpad-platform dyorswap --launchpad-platform trench --launchpad-platform onmidotfun --launchpad-platform sharcfun --launchpad-platform klik \
   --limit 80
 ```
 

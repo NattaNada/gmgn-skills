@@ -11,7 +11,7 @@ All commands support `--raw`: output single-line JSON (useful for piping to `jq`
 Query token basic info (including realtime price).
 
 ```bash
-npx gmgn-cli token info --chain <chain> --address <address> [--raw]
+gmgn-cli token info --chain <chain> --address <address> [--raw]
 ```
 
 | Option | Required | Description |
@@ -26,7 +26,7 @@ npx gmgn-cli token info --chain <chain> --address <address> [--raw]
 Query token security metrics (holder concentration, contract risks, etc.).
 
 ```bash
-npx gmgn-cli token security --chain <chain> --address <address> [--raw]
+gmgn-cli token security --chain <chain> --address <address> [--raw]
 ```
 
 | Option | Required | Description |
@@ -41,7 +41,7 @@ npx gmgn-cli token security --chain <chain> --address <address> [--raw]
 Query token liquidity pool info.
 
 ```bash
-npx gmgn-cli token pool --chain <chain> --address <address> [--raw]
+gmgn-cli token pool --chain <chain> --address <address> [--raw]
 ```
 
 | Option | Required | Description |
@@ -56,7 +56,7 @@ npx gmgn-cli token pool --chain <chain> --address <address> [--raw]
 Query top token holders list.
 
 ```bash
-npx gmgn-cli token holders --chain <chain> --address <address> [--limit <n>] [--raw]
+gmgn-cli token holders --chain <chain> --address <address> [--limit <n>] [--raw]
 ```
 
 | Option | Required | Description |
@@ -72,7 +72,7 @@ npx gmgn-cli token holders --chain <chain> --address <address> [--limit <n>] [--
 Query top token traders list.
 
 ```bash
-npx gmgn-cli token traders --chain <chain> --address <address> [--limit <n>] [--raw]
+gmgn-cli token traders --chain <chain> --address <address> [--limit <n>] [--raw]
 ```
 
 | Option | Required | Description |
@@ -88,7 +88,7 @@ npx gmgn-cli token traders --chain <chain> --address <address> [--limit <n>] [--
 Query token K-line (candlestick) data.
 
 ```bash
-npx gmgn-cli market kline \
+gmgn-cli market kline \
   --chain <chain> \
   --address <address> \
   --resolution <resolution> \
@@ -112,7 +112,7 @@ npx gmgn-cli market kline \
 Query trending token swap data.
 
 ```bash
-npx gmgn-cli market trending \
+gmgn-cli market trending \
   --chain <chain> \
   --interval <interval> \
   [--limit <n>] \
@@ -132,7 +132,7 @@ npx gmgn-cli market trending \
 | `--order-by` | No | Sort field: `volume` / `swaps` / `liquidity` / `marketcap` / `holders` / `price` / `change` / `change1m` / `change5m` / `change1h` / `renowned_count` / `smart_degen_count` / `bluechip_owner_percentage` / `rank` / `creation_timestamp` / `square_mentions` / `history_highest_market_cap` / `gas_fee` |
 | `--direction` | No | Sort direction: `asc` / `desc` (default `desc`) |
 | `--filter` | No | Filter tag (repeatable): `has_social` / `not_risk` / `not_honeypot` / `verified` / `locked` / `renounced` / `distributed` / `frozen` / `burn` / `token_burnt` / `creator_hold` / `creator_close` / `creator_add_liquidity` / `creator_remove_liquidity` / `creator_sell` / `creator_buy` / `not_wash_trading` / `not_social_dup` / `not_image_dup` / `is_internal_market` / `is_out_market`. The gmgn web client also sends aliases `social_not_duplicate` / `img_not_duplicate` / `is_burnt` / `launching` / `migrated`, which are accepted but only the canonical tags change behavior. |
-| `--platform` | No | Platform filter (repeatable). Omit (or pass an empty list) to include **all** platforms. Available values depend on chain — see below. |
+| `--platform` | No | Platform filter (repeatable). Omit to use the server's per-chain default platform allow-list — **not** all platforms. (Server-side behaviour, not verifiable from the CLI; same as `market trenches` below.) Available values depend on chain — see below. |
 | `--min-<metric>` / `--max-<metric>` | No | Numeric range filters (inclusive). Supported metrics: `volume` / `liquidity` / `marketcap` / `history-highest-marketcap` / `swaps` / `holder-count` / `gas-fee` / `renowned-count` / `smart-degen-count` / `bot-degen-count` / `visiting-count` / `price-change-percent` / `insider-rate` / `bundler-rate` / `entrapment-ratio` / `top10-holder-rate` / `top70-sniper-hold-rate` / `dev-team-hold-rate`. Unknown metrics are ignored by the service. |
 | `--min-created` / `--max-created` | No | Token-age window, duration string with a `m` (minutes) / `h` (hours) / `d` (days) suffix, e.g. `30m` / `6h` / `7d`. `--min-created` is a minimum age (excludes younger tokens); `--max-created` a maximum age (excludes older tokens). The raw upstream rank interface accepts minutes only; the openapi-service does not forward this field — it evaluates the age window itself (cutoff = now − duration, native for `m`/`h`/`d`), so `6h`/`7d` work here. A bare number with no unit suffix is not accepted. |
 
@@ -151,7 +151,7 @@ npx gmgn-cli market trending \
 Query wallet token holdings.
 
 ```bash
-npx gmgn-cli portfolio holdings \
+gmgn-cli portfolio holdings \
   --chain <chain> \
   --wallet <wallet_address> \
   [--limit <n>] \
@@ -189,7 +189,7 @@ npx gmgn-cli portfolio holdings \
 Query wallet transaction activity.
 
 ```bash
-npx gmgn-cli portfolio activity \
+gmgn-cli portfolio activity \
   --chain <chain> \
   --wallet <wallet_address> \
   [--token <token_address>] \
@@ -215,7 +215,7 @@ npx gmgn-cli portfolio activity \
 Query wallet trading statistics. Supports batch queries.
 
 ```bash
-npx gmgn-cli portfolio stats \
+gmgn-cli portfolio stats \
   --chain <chain> \
   --wallet <wallet_address_1> [--wallet <wallet_address_2>] \
   [--raw]
@@ -255,7 +255,7 @@ The response contains a `list` array with one result per wallet, including selec
 Query wallets and main currency balances bound to the API Key.
 
 ```bash
-npx gmgn-cli portfolio info [--raw]
+gmgn-cli portfolio info [--raw]
 ```
 
 No additional parameters required.
@@ -267,7 +267,7 @@ No additional parameters required.
 Query wallet token balance for a single token.
 
 ```bash
-npx gmgn-cli portfolio token-balance \
+gmgn-cli portfolio token-balance \
   --chain <chain> \
   --wallet <wallet_address> \
   --token <token_address> \
@@ -287,7 +287,7 @@ npx gmgn-cli portfolio token-balance \
 Query tokens created by a developer wallet.
 
 ```bash
-npx gmgn-cli portfolio created-tokens \
+gmgn-cli portfolio created-tokens \
   --chain <chain> \
   --wallet <wallet_address> \
   [--order-by <field>] \
@@ -311,7 +311,9 @@ npx gmgn-cli portfolio created-tokens \
 Query Trenches token lists (new creation, near completion, completed).
 
 ```bash
-npx gmgn-cli market trenches --chain <chain> [--type <type...>] [--launchpad-platform <platform...>] [--limit <n>] [--raw]
+gmgn-cli market trenches --chain <chain> [--type <type...>] [--launchpad-platform <platform...>] [--limit <n>] \
+  [--filter-preset <preset>] [--sort-by <field>] [--direction <asc|desc>] \
+  [--min-<metric> <n>] [--max-<metric> <n>] [--raw]
 ```
 
 | Option | Required | Description |
@@ -319,7 +321,43 @@ npx gmgn-cli market trenches --chain <chain> [--type <type...>] [--launchpad-pla
 | `--chain` | Yes | `sol` / `bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche` / `elysium` |
 | `--type` | No | Categories to query, repeatable: `new_creation` / `near_completion` / `completed` (default: all three) |
 | `--launchpad-platform` | No | Launchpad platform filter, repeatable. **Default is NOT literally "all platforms": when omitted, the server injects a fixed per-chain default platform allow-list; passing values REPLACES that allow-list (so passing fewer platforms returns less data). Platforms outside the allow-list — including some newer RWA / tokenized-stock platforms — are filtered out.** Values depend on chain — see below. |
-| `--limit` | No | Max results per category (default: 80). **Best-effort only — not guaranteed.** The value is forwarded upstream but the `new_creation` category is served from a fixed live window (~60 in practice), so both larger and smaller `--limit` may still return ~60. |
+| `--limit` | No | Max results per category, max 80 (default: 80). **Best-effort only — not guaranteed.** The value is forwarded upstream but the `new_creation` category is served from a fixed live window (~60 in practice), so both larger and smaller `--limit` may still return ~60. |
+| `--filter-preset` | No | Named filter preset: `safe` / `smart-money` / `strict` |
+| `--sort-by` | No | Client-side sort per category: `smart_degen_count` / `renowned_count` / `volume_24h` / `volume_1h` / `swaps_24h` / `swaps_1h` / `rug_ratio` / `holder_count` / `usd_market_cap` / `created_timestamp` |
+| `--direction` | No | Sort direction: `asc` / `desc` (default: `desc`; `asc` for `rug_ratio`) |
+| `--min-volume-24h` / `--max-volume-24h` | No | 24h trading volume range (USD) |
+| `--min-net-buy-24h` / `--max-net-buy-24h` | No | 24h net buy volume range (USD) |
+| `--min-swaps-24h` / `--max-swaps-24h` | No | 24h total swap count range |
+| `--min-buys-24h` / `--max-buys-24h` | No | 24h buy count range |
+| `--min-sells-24h` / `--max-sells-24h` | No | 24h sell count range |
+| `--min-visiting-count` / `--max-visiting-count` | No | Visitor count range |
+| `--min-progress` / `--max-progress` | No | Bonding curve progress range (0–1; 1 = completed) |
+| `--min-marketcap` / `--max-marketcap` | No | Market cap range (USD) |
+| `--min-liquidity` / `--max-liquidity` | No | Liquidity range (USD) |
+| `--min-created` / `--max-created` | No | Token age range — unit recommended: seconds (e.g. `30s`) or minutes (e.g. `0.5m` / `1m` / `5m` / `30m`). Bare numbers are treated as minutes. |
+| `--min-holder-count` / `--max-holder-count` | No | Holder count range |
+| `--min-top-holder-rate` / `--max-top-holder-rate` | No | Top-10 holder concentration range (0–1) |
+| `--min-rug-ratio` / `--max-rug-ratio` | No | Rug pull risk score range (0–1, e.g. max `0.3` to exclude rugs) |
+| `--min-bundler-rate` / `--max-bundler-rate` | No | Bundle-bot trading ratio range (0–1) |
+| `--min-insider-ratio` / `--max-insider-ratio` | No | Insider trading ratio range (0–1) |
+| `--min-entrapment-ratio` / `--max-entrapment-ratio` | No | Entrapment trading ratio range (0–1) |
+| `--min-private-vault-hold-rate` / `--max-private-vault-hold-rate` | No | Private vault holding ratio range (0–1) |
+| `--min-top70-sniper-hold-rate` / `--max-top70-sniper-hold-rate` | No | Top-70 sniper holding ratio range (0–1) |
+| `--min-bot-count` / `--max-bot-count` | No | Bot wallet count range |
+| `--min-bot-degen-rate` / `--max-bot-degen-rate` | No | Bot-degen wallet ratio range (0–1) |
+| `--min-fresh-wallet-rate` / `--max-fresh-wallet-rate` | No | Fresh wallet ratio range (0–1) |
+| `--min-total-fee` / `--max-total-fee` | No | Total fee range |
+| `--min-smart-degen-count` / `--max-smart-degen-count` | No | Smart-money holder count range |
+| `--min-renowned-count` / `--max-renowned-count` | No | KOL / renowned wallet count range |
+| `--min-creator-balance-rate` / `--max-creator-balance-rate` | No | Creator holding ratio range (0–1) |
+| `--min-creator-created-count` / `--max-creator-created-count` | No | Creator total token creation count range |
+| `--min-creator-created-open-count` / `--max-creator-created-open-count` | No | Creator graduated token count range |
+| `--min-creator-created-open-ratio` / `--max-creator-created-open-ratio` | No | Creator graduation ratio range (0–1) |
+| `--min-x-follower` / `--max-x-follower` | No | Twitter / X follower count range |
+| `--min-twitter-rename-count` / `--max-twitter-rename-count` | No | Twitter rename count range (high = suspicious) |
+| `--min-tg-call-count` / `--max-tg-call-count` | No | Telegram call count range |
+
+(All flag names and descriptions above verified against `gmgn-cli market trenches --help`, gmgn-cli 1.7.2.)
 
 **`sol` platforms:** `Pump.fun` / `pump_mayhem` / `pump_mayhem_agent` / `pump_agent` / `letsbonk` / `bonkers` / `bags` / `memoo` / `liquid` / `bankr` / `zora` / `surge` / `anoncoin` / `moonshot_app` / `wendotdev` / `heaven` / `sugar` / `token_mill` / `believe` / `trendsfun` / `trends_fun` / `jup_studio` / `Moonshot` / `boop` / `ray_launchpad` / `meteora_virtual_curve` / `xstocks`
 
@@ -421,6 +459,28 @@ gmgn-cli market hot-searches --params '<json_array>' [--raw]
 
 ---
 
+## market search
+
+Search for a specific token or wallet by name, symbol, contract address, wallet address, or ENS. Used by `gmgn-callout-score` (Step 0) to resolve a `gmgn.ai/profile/<handle>` handle to a wallet, and by `gmgn-token-buy` for token lookup. API Key auth only.
+
+```bash
+gmgn-cli market search -q <keyword> [--chain <chain|all>] [--launchpad-platform <platform...>] \
+  [--is-og <bool>] [--is-launched <bool>] [--order-by weight] [--raw]
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `-q` / `--query` | Yes | Search keyword: token name / symbol / contract address / wallet address / ENS |
+| `--chain` | No | Scope results to one chain, or `all` (default: search all chains) |
+| `--launchpad-platform` | No | Launchpad platform filter, repeatable (max 50), e.g. `pump` / `moonshot` / `raydium`. Filters tokens only |
+| `--is-og` | No | `true` = OG tokens only; `false` = non-OG only; omit for no filter. Tokens only |
+| `--is-launched` | No | `true` = already-launched tokens only; omit for no filter. Tokens only |
+| `--order-by` | No | Only `weight` is accepted — sorts tokens by weighted relevance and drops honeypots. Tokens only |
+
+(All flags verified against `gmgn-cli market search --help`, gmgn-cli 1.7.2.)
+
+---
+
 ## track follow-tokens
 
 Query the followed token list for a wallet. Returns a paginated list of tokens the wallet has bookmarked on GMGN, with full market data. API Key auth only.
@@ -469,7 +529,7 @@ gmgn-cli track follow-token-groups \
 
 ---
 
-## portfolio follow-wallet
+## track follow-wallet
 
 Query follow-wallet trade records. Returns trades from wallets you personally follow on the GMGN platform. The follow list is resolved automatically from the GMGN user account bound to the API Key — `--wallet` is optional. Signed auth (API Key + private key signature).
 
@@ -497,33 +557,33 @@ gmgn-cli track follow-wallet \
 
 ---
 
-## portfolio kol
+## track kol
 
 Query KOL trade records.
 
 ```bash
-gmgn-cli track kol [--chain <chain>] [--limit <n>] [--side <side>] [--raw]
+gmgn-cli track kol --chain <chain> [--limit <n>] [--side <side>] [--raw]
 ```
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--chain` | No | `sol` / `bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche` / `elysium` (default `sol`) |
+| `--chain` | Yes | `sol` / `bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche` / `elysium` — required, no default. Omitting it fails: the CLI declares it with `requiredOption` (`src/commands/track.ts`). |
 | `--limit` | No | Page size (1–200, default 100) |
 | `--side` | No | Filter by trade direction: `buy` / `sell` (client-side filter) |
 
 ---
 
-## portfolio smartmoney
+## track smartmoney
 
 Query Smart Money trade records.
 
 ```bash
-gmgn-cli track smartmoney [--chain <chain>] [--limit <n>] [--side <side>] [--raw]
+gmgn-cli track smartmoney --chain <chain> [--limit <n>] [--side <side>] [--raw]
 ```
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--chain` | No | `sol` / `bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche` / `elysium` (default `sol`) |
+| `--chain` | Yes | `sol` / `bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche` / `elysium` — required, no default. Omitting it fails: the CLI declares it with `requiredOption` (`src/commands/track.ts`). |
 | `--limit` | No | Page size (1–200, default 100) |
 | `--side` | No | Filter by trade direction: `buy` / `sell` (client-side filter) |
 
@@ -574,7 +634,7 @@ gmgn-cli callout global --chain <chain> [--chain <chain> ...] [--limit <n>] [--p
 Get a swap quote without submitting a transaction. Uses normal auth — only `GMGN_API_KEY` is required, no `GMGN_PRIVATE_KEY` needed.
 
 ```bash
-npx gmgn-cli order quote \
+gmgn-cli order quote \
   --chain <chain> \
   --from <wallet_address> \
   --input-token <input_token_address> \
@@ -611,7 +671,7 @@ npx gmgn-cli order quote \
 Submit a token swap. **Requires `GMGN_PRIVATE_KEY` configured in `.env`.**
 
 ```bash
-npx gmgn-cli swap \
+gmgn-cli swap \
   --chain <chain> \
   --from <wallet_address> \
   --input-token <input_token_address> \
@@ -682,6 +742,31 @@ npx gmgn-cli swap \
 
 ---
 
+## gas-price
+
+Query recommended gas price tiers for any chain. Used by `gmgn-token-buy` before submitting a trade. API Key auth only (`exist` auth — API Key, no private key, no signature).
+
+```bash
+gmgn-cli gas-price --chain <chain> [--raw]
+```
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--chain` | Yes | `sol` / `bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche` / `elysium` (includes read-only `elysium`) |
+
+(All flags verified against `gmgn-cli gas-price --help`, gmgn-cli 1.7.2; the command is registered in `src/commands/swap.ts` as exist auth.)
+
+**⚠️ Units differ between the trade commands that consume a gas price — do not copy one value into the other:**
+
+| Command | `--gas-price` unit |
+|---------|-------------------|
+| `swap` / `multi-swap` / `order` | **gwei** (the CLI converts gwei → wei before sending; see `src/commands/swap.ts`) |
+| `cooking create` | **wei** (EVM only; see `src/commands/cooking.ts`) |
+
+`gmgn-swap` and `gmgn-cooking` document this same warning in their own skill files — read it there before passing a `gas-price` value to a trade.
+
+---
+
 ## multi-swap
 
 Submit token swaps across multiple wallets concurrently. Each wallet executes independently. Up to 100 wallets per request, all must be bound to the API Key. **Requires `GMGN_PRIVATE_KEY` configured in `.env`.**
@@ -748,7 +833,7 @@ gmgn-cli multi-swap \
 Query order status. **Requires `GMGN_PRIVATE_KEY` configured in `.env`.**
 
 ```bash
-npx gmgn-cli order get --chain <chain> --order-id <order_id> [--raw]
+gmgn-cli order get --chain <chain> --order-id <order_id> [--raw]
 ```
 
 | Option | Required | Description |

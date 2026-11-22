@@ -7,20 +7,45 @@ TOKEN_ADDR = sys.argv[1]
 CHAIN      = sys.argv[2]
 LANG       = sys.argv[3] if len(sys.argv) > 3 else 'zh'
 
-# EVM 地址自动探测链（0x... 且 chain 传入 'auto' 或未明确指定时）
-KNOWN_CHAINS = ('bsc', 'eth', 'base', 'sol', 'robinhood', 'arc', 'stable', 'avalanche', 'elysium')
-if CHAIN == 'auto' or (TOKEN_ADDR.startswith('0x') and CHAIN not in KNOWN_CHAINS):
-    for _c in ('bsc', 'eth', 'base'):
-        _r = subprocess.run(['gmgn-cli', 'token', 'holders', '--chain', _c,
+# CLI 接受的全部 11 条 read chain（src/validate.ts READ_CHAINS）。
+# 10 条 EVM chain = semua chain di bawah kecuali sol。
+KNOWN_CHAINS = ('sol', 'bsc', 'base', 'eth', 'arbitrum', 'hyperevm', 'robinhood', 'arc', 'stable', 'avalanche', 'elysium')
+EVM_CHAINS = ('bsc', 'eth', 'base', 'arbitrum', 'hyperevm', 'robinhood', 'arc', 'stable', 'avalanche', 'elysium')
+
+def _fail(msg):
+    print(msg, file=sys.stderr)
+    sys.exit(2)
+
+def _probe_chain(chain):
+    """True bila token punya holder di chain ini. Kegagalan CLI / parse di sini
+    dihitung sebagai 'tidak ketemu' — pelaporannya oleh pemanggil, bukan traceback."""
+    try:
+        _r = subprocess.run(['gmgn-cli', 'token', 'holders', '--chain', chain,
                              '--address', TOKEN_ADDR, '--limit', '5', '--raw'],
                             capture_output=True, text=True, timeout=15)
-        if _r.returncode == 0:
-            _data = json.loads(_r.stdout)
-            if _data.get('list'):
+        if _r.returncode != 0:
+            return False
+        return bool(json.loads(_r.stdout).get('list'))
+    except Exception:
+        return False
+
+# Auto-detect HANYA bila chain tidak diberikan ('auto'). Chain yang diberikan
+# eksplisit tidak pernah di-remap diam-diam: bila CLI menolaknya, atau token
+# tidak punya holder di sana, run gagal dengan pesan keras, bukan dianalisis
+# di chain lain.
+if CHAIN == 'auto':
+    if TOKEN_ADDR.startswith('0x'):
+        for _c in EVM_CHAINS:
+            if _probe_chain(_c):
                 CHAIN = _c
                 break
+        else:
+            _fail(f"token {TOKEN_ADDR} tidak punya holder di chain EVM mana pun "
+                  f"({', '.join(EVM_CHAINS)}) — beri --chain eksplisit atau periksa alamatnya")
     else:
-        CHAIN = 'eth'  # fallback
+        CHAIN = 'sol'
+elif CHAIN not in KNOWN_CHAINS:
+    _fail(f"unknown chain: {CHAIN!r} — harus salah satu dari: {', '.join(KNOWN_CHAINS)}")
 WINDOW     = 300   # 同步注资滑窗（秒）—— 文档要求"极短时间"，取 5 分钟
 TIGHT      = 60    # 秒级同步注资，基本可判定为脚本批量打款
 now_ts     = int(time.time())
@@ -39,38 +64,75 @@ ZH = (LANG == 'zh')
 def _(zh, en): return zh if ZH else en
 
 def run_cli(args, timeout=30):
-    r = subprocess.run(['gmgn-cli'] + args + ['--raw'],
-                       capture_output=True, text=True, timeout=timeout)
+    """Satu-satunya pemanggil gmgn-cli. Kegagalan CLI / output bukan JSON
+    dilempar sebagai RuntimeError dengan pesan bersih (tanpa traceback),
+    ditangkap di bawah dan keluar dengan kode non-nol."""
+    try:
+        r = subprocess.run(['gmgn-cli'] + args + ['--raw'],
+                           capture_output=True, text=True, timeout=timeout)
+    except Exception as e:
+        raise RuntimeError(f"gmgn-cli gagal: {e} — jalankan `gmgn-cli config --check`")
     if r.returncode != 0:
-        raise RuntimeError(r.stderr)
-    return json.loads(r.stdout)
+        _err = (r.stderr or r.stdout or '').strip()
+        raise RuntimeError(f"gmgn-cli gagal: {_err} — jalankan `gmgn-cli config --check`")
+    try:
+        return json.loads(r.stdout)
+    except Exception:
+        raise RuntimeError("gmgn-cli gagal: output bukan JSON — jalankan `gmgn-cli config --check`")
 
-with ThreadPoolExecutor(max_workers=4) as ex:
-    f_holders = ex.submit(run_cli, ['token', 'holders', '--chain', CHAIN, '--address', TOKEN_ADDR, '--limit', '100'])
-    f_devs    = ex.submit(run_cli, ['token', 'holders', '--chain', CHAIN, '--address', TOKEN_ADDR, '--tag', 'dev', '--limit', '20'])
-    # 原生代币价格与 holders 无依赖，和上面两个请求并发，不额外增加耗时
-    f_price   = (ex.submit(run_cli, ['token', 'info', '--chain', CHAIN, '--address', WNATIVE[CHAIN]])
-                 if CHAIN in WNATIVE else None)
+try:
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        f_holders = ex.submit(run_cli, ['token', 'holders', '--chain', CHAIN, '--address', TOKEN_ADDR, '--limit', '100'])
+        f_devs    = ex.submit(run_cli, ['token', 'holders', '--chain', CHAIN, '--address', TOKEN_ADDR, '--tag', 'dev', '--limit', '20'])
+        # 原生代币价格与 holders 无依赖，和上面两个请求并发，不额外增加耗时
+        f_price   = (ex.submit(run_cli, ['token', 'info', '--chain', CHAIN, '--address', WNATIVE[CHAIN]])
+                     if CHAIN in WNATIVE else None)
 
-    # dev 结果一到，立即发起 created-tokens，不等 holders
-    devs = f_devs.result()['list']
-    _creator_tmp = next((d for d in devs if 'creator' in (d.get('maker_token_tags') or [])), None)
-    f_created = None
-    if _creator_tmp:
-        f_created = ex.submit(run_cli, ['portfolio', 'created-tokens', '--chain', CHAIN,
-                                        '--wallet', _creator_tmp['address'],
-                                        '--order-by', 'token_ath_mc', '--direction', 'desc'])
+        # dev 结果一到，立即发起 created-tokens，不等 holders
+        devs = f_devs.result()['list']
+        _creator_tmp = next((d for d in devs if 'creator' in (d.get('maker_token_tags') or [])), None)
+        # Dual-source fallback: `token holders --tag dev` mengembalikan list kosong
+        # di sebagian launchpad — tanpa fallback, seluruh seksi Dev (termasuk danger
+        # gate dev sock-puppet) mati diam-diam. Hanya bila sumber utama gagal,
+        # creator dipulihkan dari `token info` (dev.creator_address dan
+        # dev.creator_token_balance). Fallback yang gagal dibiarkan gagal: devs
+        # tetap kosong dan laporan menulis "tidak ada Dev", run tidak crash.
+        _dev_fallback = False
+        if not _creator_tmp:
+            try:
+                _info = run_cli(['token', 'info', '--chain', CHAIN, '--address', TOKEN_ADDR])
+                _devinfo = (_info or {}).get('dev') or {}
+                _caddr = _devinfo.get('creator_address') or ''
+                if _caddr:
+                    try:
+                        _cbal = float(_devinfo.get('creator_token_balance') or 0) or None
+                    except (TypeError, ValueError):
+                        _cbal = None
+                    _creator_tmp = {'address': _caddr, 'balance': _cbal,
+                                    'maker_token_tags': ['creator']}
+                    devs = list(devs) + [_creator_tmp]
+                    _dev_fallback = True
+            except Exception:
+                pass
+        f_created = None
+        if _creator_tmp:
+            f_created = ex.submit(run_cli, ['portfolio', 'created-tokens', '--chain', CHAIN,
+                                            '--wallet', _creator_tmp['address'],
+                                            '--order-by', 'token_ath_mc', '--direction', 'desc'])
 
-    holders      = f_holders.result()['list']
-    created_data = f_created.result() if f_created else None
+        holders      = f_holders.result()['list']
+        created_data = f_created.result() if f_created else None
 
-    # 价格取不到就降级为 None —— 宁可只显示原生数量，也不编造美元金额
-    NATIVE_PRICE = None
-    if f_price:
-        try:
-            NATIVE_PRICE = float(((f_price.result() or {}).get('price') or {}).get('price') or 0) or None
-        except Exception:
-            NATIVE_PRICE = None
+        # 价格取不到就降级为 None —— 宁可只显示原生数量，也不编造美元金额
+        NATIVE_PRICE = None
+        if f_price:
+            try:
+                NATIVE_PRICE = float(((f_price.result() or {}).get('price') or {}).get('price') or 0) or None
+            except Exception:
+                NATIVE_PRICE = None
+except RuntimeError as e:
+    print(str(e), file=sys.stderr)
+    sys.exit(1)
 
 # ── 代币自身的合约地址不是持仓钱包 ──────────────────────────────────────
 # 上游把它当普通钱包返回（实测 musebook / robinhood：addr_type=0、0 买 0 卖、
@@ -107,12 +169,6 @@ def fmt_amt(v):
     if v >= 1_000_000: return f"{v/1_000_000:.1f}M"
     if v >= 1_000:     return f"{v/1_000:.0f}K"
     return f"{v:.0f}"
-def age_label(entry_ts):
-    secs  = now_ts - entry_ts
-    days  = secs // 86400
-    hours = secs // 3600
-    if ZH: return f"{hours}小时前入场" if days == 0 else f"{days}天前入场"
-    else:  return f"{hours}h ago" if days == 0 else f"{days}d ago"
 def addr_short(addr):
     return f"{addr[:4]}...{addr[-4:]}"
 def price_str(v):
@@ -333,8 +389,6 @@ related_usd = sum(h.get('usd_value',0) for h in normal if h['address'] in relate
 smart   = [h for h in normal if any(t in (h.get('tags') or []) for t in ['smart_degen','pump_smart'])]
 kol     = [h for h in normal if 'kol' in (h.get('tags') or []) or 'renowned' in (h.get('tags') or [])]
 whales  = [h for h in normal if 'whale' in (h.get('maker_token_tags') or [])]
-partial = [h for h in normal if 0<(h.get('sell_amount_percentage') or 0)<0.5]
-heavy_sell = [h for h in normal if (h.get('sell_amount_percentage') or 0)>=0.5]
 
 # ── 钻石手必须自己买过 ──────────────────────────────────────────────────
 # 旧定义只要 sell_tx==0 且 balance>0，于是零成本空降钱包全被算进钻石手：空投分发的币
@@ -371,12 +425,20 @@ smart_holding = [h for h in smart if (h.get('sell_tx_count_cur') or 0) == 0 and 
 top100_map   = {h['address']: h for h in holders
                 if (h.get('address') or '').lower() != SELF_ADDR}
 creator      = next((d for d in devs if 'creator' in (d.get('maker_token_tags') or [])), None)
+if _dev_fallback and creator:
+    # `token info` memberi saldo token tapi bukan pangsa supply; turunkan pangsa
+    # dari estimasi total supply agar seksi Dev bisa menampilkannya. Saldo di sini
+    # satu satuan dengan `balance` para holder.
+    _cb = creator.get('balance') or 0
+    try:
+        if total_supply > 0 and float(_cb) > 0:
+            creator['amount_percentage'] = float(_cb) / total_supply
+    except (TypeError, ValueError):
+        pass
 sub_devs     = [d for d in devs if 'creator' not in (d.get('maker_token_tags') or [])]
 dev_realized = sum(d.get('realized_profit') or 0 for d in devs)
 dev_holding  = [d for d in devs if (d.get('balance') or 0)>=1]
 
-valid_starts  = [h['start_holding_at'] for h in holders if (h.get('start_holding_at') or 0)>0]
-token_launch  = min(valid_starts) if valid_starts else now_ts
 durations     = [now_ts-h['start_holding_at'] for h in normal
                  if (h.get('start_holding_at') or 0)>0 and now_ts>h['start_holding_at']]
 avg_hold_days = (sum(durations)/len(durations)/86400) if durations else 0
@@ -445,35 +507,10 @@ def wallet_roles(h):
         if t in ROLE_MAP: roles.append(ROLE_MAP[t])
     return list(dict.fromkeys(roles))
 
-def holding_status(h):
-    sp  = h.get('sell_amount_percentage', 0) or 0
-    bal = h.get('balance', 0) or 0
-    if bal <= 0:   return _("已清仓",     "Cleared")
-    if sp >= 0.8:  return _("🔴 大量出货", "🔴 Heavy Selling")
-    if sp >= 0.3:  return _("🟡 出货中",   "🟡 Selling")
-    if sp > 0:     return _("少量出货",    "Light Selling")
-    return             _("持仓未动",       "Holding")
-
-# §5 要数"这批钱包里有几个在出货"。原先的写法是把 holding_status(h) 的返回值
-# 和两条本地化文案做字符串比对 —— 那是给人看的显示文本：改一个 emoji 或改一个词，
-# 这里就会静默返回空列表，sell_ratio 变 0，每个批次都被降级成 🟢，而且不报任何错。
-# 改成直接复用 holding_status 的同一组阈值：余额>0 且已卖出量≥30%，
-# 等价于原来的 {🔴 大量出货, 🟡 出货中} 两个分支。
-def is_distributing(h):
-    return (h.get('balance', 0) or 0) > 0 and (h.get('sell_amount_percentage', 0) or 0) >= 0.3
-
-def wallet_behavior(h):
-    buy_tx  = h.get('buy_tx_count_cur', 0) or 0
-    sell_tx = h.get('sell_tx_count_cur', 0) or 0
-    if buy_tx==0 and sell_tx==0: return _("几乎无链上活动",     "Almost no on-chain activity")
-    if buy_tx>0 and sell_tx==0:  return _("持续买入，尚未卖出", "Buying only, not sold yet")
-    if sell_tx>0 and buy_tx==0:  return _("只卖不买",           "Selling only")
-    return ""
-
 def trend_str(wlist):
     """文档问的是"持续加仓中还是出货中"。按累计买卖笔数分桶会把绝大多数活跃钱包
     归进"买卖都有"，两个分支都答不上。改用 sell_amount_percentage（已卖出量占已买入量
-    的比例）判净方向 —— 和 holding_status 用的是同一个字段。"""
+    的比例）判净方向。"""
     cleared, dumping, trimming, adding, holding, idle = [], [], [], [], [], []
     for h in wlist:
         sp  = h.get('sell_amount_percentage') or 0
@@ -510,11 +547,23 @@ if not float_degenerate:
     if biggest_pct > 0.10:
         dangers.append(_( f"最大单钱包持仓 {pct(biggest_pct):.1f}%，筹码极度集中",
                           f"Largest wallet holds {pct(biggest_pct):.1f}% — extreme concentration"))
+_fallback_puppets = []
 if creator:
     to_out = creator.get('token_transfer_out') or {}
     if (to_out.get('address') or '') in top100_map:
         dangers.append(_("Dev 筹码转给内部马甲，换手控盘",
                          "Dev transferred chips to internal wallet — covert control"))
+    elif _dev_fallback:
+        # Jalur fallback: `token info` tidak membawa token_transfer_out, jadi
+        # penilaiannya beralih ke gas funding — holder top-100 yang
+        # native_transfer.from_address-nya adalah creator. Bila tidak ketemu,
+        # TIDAK dilaporkan sebagai bersih: hanya ~57% holder yang membawa field itu.
+        _caddr_l = (creator.get('address') or '').lower()
+        _fallback_puppets = [h for h in normal
+                             if (_tr(h, 'from_address', '') or '').lower() == _caddr_l]
+        if _fallback_puppets:
+            dangers.append(_("Dev membayar gas untuk wallet internal (马甲)，换手控盘",
+                             "Dev paid gas for internal wallet(s) — covert control"))
 
 warns = []
 if no_holders:
@@ -592,48 +641,6 @@ if not exit_signals:
 exit_signals = exit_signals[:3]
 
 top5_holders = sorted(normal, key=lambda h: -h['amount_percentage'])[:5]
-
-def top5_pressure(h):
-    avg_cost = h.get('avg_cost') or 0
-    up_pnl   = h.get('unrealized_pnl') or 0
-    up_usd   = h.get('unrealized_profit') or 0
-    buy0     = h.get('buy_tx_count_cur',0)==0
-    roles    = wallet_roles(h)
-    if buy0 and not roles: roles.append(_('空降', 'Airdrop'))
-    role_str   = "["+"·".join(roles)+"]  " if roles else ""
-    display_id = (h.get('twitter_name') or '') or addr_short(h['address'])
-    # 建仓MC = 总供应 × 建仓均价。文档把它和浮盈并列为抛压信号，所以四个有成本的分支
-    # 都要给 —— 只报"均价 $0.0000"读不出这是多大的盘子进的。
-    entry_mc = total_supply * avg_cost
-    cost_str = (f"{_('建仓MC', 'Entry MC')} {usd(entry_mc)}"
-                f"（{_('均价', 'avg')} {price_str(avg_cost)}）" if ZH else
-                f"Entry MC {usd(entry_mc)} (avg {price_str(avg_cost)})")
-    if buy0 or avg_cost==0:
-        cost_str = _("零成本（转账获得）", "Zero cost (received via transfer)")
-        pnl_str  = "—"
-        lv       = "⚠️ " + _("高", "High")
-        note     = _("零成本，随时可出货", "Zero cost — can dump anytime")
-    elif up_pnl>1.0:
-        mult     = up_pnl+1
-        pnl_str  = f"+{up_pnl*100:.0f}% ({mult:.1f}x)  {usd(up_usd)}"
-        lv       = "⚠️ " + _("高", "High")
-        note     = _(f"现 MC {usd(cur_mc)}，浮盈 {mult:.1f}x，获利了结压力强",
-                     f"Now MC {usd(cur_mc)}, {mult:.1f}x gain — strong take-profit pressure")
-    elif up_pnl>0.1:
-        pnl_str  = f"+{up_pnl*100:.0f}%  {usd(up_usd)}"
-        lv       = "🟡 " + _("中", "Med")
-        note     = _("小幅浮盈，出货意愿一般", "Moderate gain — mild sell pressure")
-    elif up_pnl>=-0.1:
-        pnl_str  = f"{up_pnl*100:+.0f}%  {usd(up_usd)}" if abs(up_usd)>=1 else _("接近成本", "Near cost")
-        lv       = "🟢 " + _("低", "Low")
-        note     = _("接近成本，短期抛压有限", "Near break-even — limited short-term pressure")
-    else:
-        pnl_str  = f"{up_pnl*100:.0f}%  {usd(up_usd)}"
-        lv       = "🟢 " + _("低", "Low")
-        note     = _("套牢中，短期不易割肉", "Underwater — unlikely to sell soon")
-    beh     = wallet_behavior(h)
-    beh_str = ("  " + _("行为", "behavior") + ": " + beh) if beh else ""
-    return role_str, display_id, cost_str, pnl_str, lv, note, beh_str, holding_status(h)
 
 title = _("Holder 筹码分析", "Holder Chip Analysis")
 print(f"┌{'─'*56}┐")
@@ -772,7 +779,10 @@ else:
     sub_holding_pct = f1(sum(d.get('amount_percentage', 0) for d in sub_holding))
 
     if sock:
-        dev_line = f"🔴 {_('筹码已转至内部马甲，换手控盘', 'Chips routed to internal puppet — covert control')}"
+        if _dev_fallback and not to_addr:
+            dev_line = f"🔴 {_('Dev 为内部钱包付 gas，疑似马甲，换手控盘', 'Dev paid gas for internal wallet(s) — covert control')}"
+        else:
+            dev_line = f"🔴 {_('筹码已转至内部马甲，换手控盘', 'Chips routed to internal puppet — covert control')}"
     elif c_bal >= 1:
         if sub_holding:
             dev_line = (f"⚠️ {_('持仓', 'Holding')} {fpct(c_pct)}"
@@ -788,11 +798,17 @@ else:
     print(f"  {dev_line}")
 
     if sock:
-        target  = top100_map[to_addr]
-        t_mtags = [t for t in (target.get('maker_token_tags') or []) if t not in ('top_holder', 'transfer_in')]
-        sock_hp = fpct(f1(target.get('amount_percentage') or 0))
-        print(f"    ↳ {_('马甲', 'Puppet')} {addr_short(to_addr)}  {_('持仓', 'hold')} {sock_hp}"
-              f"  {_('标签', 'tags')}: {' '.join(t_mtags) or _('无', 'none')}")
+        if _dev_fallback and not to_addr:
+            for _p in _fallback_puppets[:5]:
+                _php = fpct(f1(_p.get('amount_percentage') or 0))
+                print(f"    ↳ {_('马甲', 'Puppet')} {addr_short(_p['address'])}  {_('持仓', 'hold')} {_php}"
+                      f"  {_('gas 来自 Dev', 'gas paid by dev')}")
+        else:
+            target  = top100_map[to_addr]
+            t_mtags = [t for t in (target.get('maker_token_tags') or []) if t not in ('top_holder', 'transfer_in')]
+            sock_hp = fpct(f1(target.get('amount_percentage') or 0))
+            print(f"    ↳ {_('马甲', 'Puppet')} {addr_short(to_addr)}  {_('持仓', 'hold')} {sock_hp}"
+                  f"  {_('标签', 'tags')}: {' '.join(t_mtags) or _('无', 'none')}")
 
     hist_str = ""
     if created_data:
@@ -800,7 +816,13 @@ else:
         mig_cnt   = created_data.get('open_count') or 0
         hist_str  = (f" · {_('历史发币', 'Token history')} {total_cnt}{_('个', '')}，"
                      f"{_('成功迁移', 'migrated')} {mig_cnt}{_('个', '')}")
-    print(f"  {_('已获利', 'Realized')} {usd(dev_realized)}{hist_str}")
+    if _dev_fallback:
+        # `token info` tidak membawa realized_profit — mencetak $0 sama dengan
+        # melaporkan field yang tidak diukur sebagai hasil ukur, jadi dihilangkan.
+        if hist_str:
+            print(f"  {hist_str.lstrip(' ·')}")
+    else:
+        print(f"  {_('已获利', 'Realized')} {usd(dev_realized)}{hist_str}")
 
     if created_data:
         ath_info = created_data.get('creator_ath_info') or {}

@@ -12,19 +12,21 @@ metadata:
 
 **IMPORTANT: Do NOT guess field names or values. When a field's meaning is unclear, look it up in the Response Fields sections below before using it.**
 
-**⚠️ IPv6 NOT SUPPORTED: If you get a `401` or `403` error and credentials look correct, check for IPv6 immediately: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user immediately: "Please disable IPv6 on your network interface — gmgn-cli commands only work over IPv4."**
+**⚠️ IPv6 NOT SUPPORTED: If you get a `401` or `403` error and credentials look correct, check for IPv6 by listing local interfaces only — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux). Do not call any third-party IP-echo service to check this: the local listing already answers it, and this skill contacts GMGN and nothing else. `gmgn-cli` forces IPv4 for direct connections (`src/index.ts`), so disabling IPv6 only matters when traffic goes through a proxy — check that case first, and only then tell the user: "Please disable IPv6 on your network interface — gmgn-cli commands only work over IPv4."**
 
 Use the `gmgn-cli` tool to read call-out data based on the user's request.
 
 ## Core Concepts
 
-- **Call-out (喊单)** — A public "I'm calling this token" post a wallet publishes on GMGN. The platform snapshots the token's price (`call_price`) and market cap (`call_mc`) at that moment, then tracks `multiplier` = current price ÷ call price. A call-out is a statement, not a trade — the caller may or may not hold the token; read `current_holding_usd` to see whether they still have skin in the game.
+- **Call-out (喊单)** — A public "I'm calling this token" post a wallet publishes on GMGN. The platform snapshots the token's price (`call_price`) and market cap (`call_mc`) at that moment, then tracks `multiplier` = the token's **peak price since the call** ÷ call price, and `price_change` = the **current** price ÷ call price − 1. A call-out is a statement, not a trade — the caller may or may not hold the token; read `current_holding_usd` to see whether they still have skin in the game.
 
 - **`record` vs `global`** — `record` is the wallet dimension: every call-out made on one wallet, over the last 30 days. `global` is the feed dimension: the newest call-outs across the chains you pass, with filters. There is no per-token call-out list; to check one wallet's calls on one token, use `record --token`.
 
 - **Declaration (宣言)** — A paid, pinned call-out. `--only-declaration` restricts `global` to these. Payment buys visibility, not quality — never treat a declaration as a stronger signal than a normal call-out by itself.
 
-- **`multiplier`** — Ratio, not percent. `2.35` = token is 2.35× its call price (+135%). `0.5` = down 50% since the call.
+- **`multiplier`** — Ratio, not percent, and a **peak**, not the current price. `2.35` = the token touched 2.35× its call price at some point since the call (+135% at the peak). It says nothing about where the price is now — a token that touched 2× and then fell back to 28% of its call price still reports a multiplier above 1. So `hit_2x_count` means *"ever touched 2×"*, not "is up 2× now". (Measured proof: seven calls on one token at seven different `call_price` values all yield the identical implied peak `call_price × multiplier` to 8 decimals; see `gmgn-callout-score` Core Concepts.)
+
+- **`price_change`** — The **current** ratio minus 1: `token_price / call_price − 1`. This is the field that says where the token is now (`0.5` = currently up 50% since the call; `−0.72` = currently down 72%). Survival rate = `(1 + price_change) ÷ multiplier` = current price as a fraction of the post-call peak.
 
 - **`is_safe`** — The token's security state at query time: `safe` / `risk` / `unknown`. `--only-safe` keeps `safe` only.
 
@@ -162,7 +164,11 @@ Shared by `call_out_records` (`record`) and `list` (`global`). Fields that are e
 | `call_thesis.source_content` | Call-out text as written |
 | `call_thesis.translation_content` | Translations of the text, keyed by language |
 | `create_time` | Call time, Unix **milliseconds** |
-| `multiplier` | Current price ÷ call price (string) |
+| `multiplier` | Peak price since the call ÷ call price (string) — the highest price the token reached after the call, **not** the current price. A value of 2.35 means the token touched 2.35× at some point; use `price_change` for where it is now. |
+| `price_change` | Current price ÷ call price − 1 (number) — the current ratio. `0.5` = currently up 50% since the call; `−0.72` = currently down 72%. |
+| `holding_percentage` | Share of the caller's position still held: `(bought_amount − sold_amount) ÷ bought_amount`. `0` means flat or never held, not a missing value. Carries no timestamp — it cannot tell a pre-call sell from a post-call sell. |
+| `token_creation_timestamp` | Token creation time (Unix seconds). |
+| `launchpad_platform` | Launchpad the token launched on (e.g. `pump`, `fourmeme`). |
 | `token_symbol` / `token_logo` | Token symbol / logo URL |
 | `token_price` | Current token price |
 | `is_safe` | `safe` / `risk` / `unknown` |
@@ -181,7 +187,7 @@ Shared by `call_out_records` (`record`) and `list` (`global`). Fields that are e
 Present newest first. Do not dump raw JSON.
 
 ```
-{create_time local}  {token_symbol} ({short call_token})  {chain}  {multiplier}x since call
+{create_time local}  {token_symbol} ({short call_token})  {chain}  peak {multiplier}x since call (now {price_change} vs call)
                      by {twitter_username or short call_wallet} [KOL]  holding ${current_holding_usd}  is_safe={is_safe}
                      "{call_thesis.source_content, trimmed to one line}"
 ```

@@ -5,7 +5,7 @@
 **全部数据只经 `gmgn-cli` 取。** 不抓网页、不接第三方源、不自己拼 HTTP 请求。API Key 由 CLI 自己从本机配置读取并签发，**本技能不读、不存、不传任何凭证**；下面四条命令全是读接口，只需 API Key，不需要私钥（私钥只有 gmgn-swap 下单才用）。
 
 - **只覆盖 9 条链**：`sol` `eth` `bsc` `base` `arbitrum` `hyperevm` `robinhood` `arc` `stable`。其余链一律硬停、不下单。
-- **限流**：漏桶 20 次/秒。**单币尽调固定 4 个请求，与同名候选有多少个无关**（见下面的搜币说明），碰不到限流。被限返回 `RATE_LIMIT_BANNED` + `reset_at`（Unix 秒）。**读 `reset_at` 等到解封再试，期间绝不重试**——每重试一次封禁延长 5 秒（最多 5 分钟）。
+- **限流**：GMGN 漏桶按套餐分档——Free `5/5`、Plus `20/20`、Pro `50/50`（速率/容量）。「20 次/秒」只是 Plus 档的速率，不是通用值，Free 档只有 5 次/秒。**单币尽调最多 6 个请求**（`market search` 1 次 + `token info` 最多 3 次，只给粗排前 3 的候选做权威重排 + `token security` 1 次 + `gas-price` 1 次；已锁定的币若已在重排批里拉过 `token info`，复用、不重打），顺序调用、不并行。被限返回 `RATE_LIMIT_BANNED` + `reset_at`（Unix 秒）。**读 `reset_at` 等到解封再试，期间绝不重试**——每重试一次封禁延长 5 秒（最多 5 分钟）。
 
 ## 命令
 
@@ -22,7 +22,7 @@
 
 ⚠️ **只读 `coins[]`，`wallets[]` 与本技能无关。** 同一次响应会同时返回钱包命中，且数量常常比代币还多——实测用 PEPE 的合约地址去搜，返回 `coins` 1 条、`wallets` 10 条；用一个不存在的地址去搜，返回 `coins` 0 条、`wallets` 11 条。**`wallets` 非空绝不能当成"找到了这个币"**，判断"有没有搜到"只看 `coins` 的长度。地址搜索本身是精确的：真实 CA 稳定返回恰好 1 条 `coins`（PEPE、BONK 实测）。
 
-**关键**：`coins[]` 的每一行都自带筛选所需的全部数字，且与 `token info` 的对应字段**逐字节相同**（已用 PEPE 核对：`liquidity` / `volume_24h` / `swaps_1h` / `swaps_24h` / `holder_count` 四项完全一致）。所以**同名候选无论 60 个还是 100 个，排序与粗筛都在这一次调用里做完，不要给每个候选各打一次 `token info`**——那是几十倍的请求量，也会撞限流。只有最终锁定的那一个才继续走 `token info` + `token security`。
+**关键**：`coins[]` 的每一行都自带筛选所需的全部数字，且与 `token info` 的对应字段**逐字节相同**（已用 PEPE 核对：`liquidity` / `volume_24h` / `swaps_1h` / `swaps_24h` / `holder_count` 四项完全一致）。所以**同名候选无论 60 个还是 100 个，排序与粗筛都在这一次调用里做完，不要给每个候选各打一次 `token info`**——那是几十倍的请求量，也会撞限流。只有粗排前 3 的候选才拉 `token info` 做权威重排（见 SKILL.md 的请求预算）；只有最终锁定的那一个才继续走 `token security`。
 
 | 用途 | 字段 |
 |---|---|
@@ -51,16 +51,16 @@
 | 用途 | 字段 |
 |---|---|
 | 可交易深度（单边口径） | 两侧都 > 0 时取 `min(pool.base_reserve_value, pool.quote_reserve_value)`；**任一侧为 `"0"` 或缺失时改用 `pool.liquidity / 2`**（见下方 ⚠️） |
-| 24h 成交额 / 各窗口 | `price.volume_24h` / `volume_1h` / `buys_1h` / `sells_1h` / `swaps_1h` |
-| **方向与波动**（「三、」闸用） | `price.price` / `price.price_5m` / `price.price_1h` / `price.price_24h`（各窗口**起点价**）；`price.buy_volume_5m` / `sell_volume_5m` / `buy_volume_1h` / `sell_volume_1h` / `buy_volume_24h` / `sell_volume_24h`（买卖分开的成交额） |
-| 交易者画像（警告项用） | `stat.top_entrapment_trader_percentage`（诱捕）/ `stat.top_bot_degen_percentage`（机器人）/ `stat.fresh_wallet_rate`（新钱包）/ `wallet_tags_stat.bundler_wallets`（捆绑钱包**个数**，要自己除以 `holder_count`）/ `wallet_tags_stat.smart_wallets` / `whale_wallets` |
+| 24h 成交额 / 各窗口 | `price.volume_24h` / `price.volume_1h` / `price.buys_1h` / `price.sells_1h` / `price.swaps_1h` |
+| **方向与波动**（「三、」闸用） | `price.price` / `price.price_5m` / `price.price_1h` / `price.price_24h`（各窗口**起点价**）；`price.buy_volume_5m` / `price.sell_volume_5m` / `price.buy_volume_1h` / `price.sell_volume_1h` / `price.buy_volume_24h` / `price.sell_volume_24h`（买卖分开的成交额） |
+| 交易者画像（警告项用，均来自 `token info`） | `stat.top_entrapment_trader_percentage`（诱捕）/ `stat.top_bot_degen_percentage`（机器人）/ `stat.fresh_wallet_rate`（新钱包）/ `wallet_tags_stat.bundler_wallets`（捆绑钱包**个数**，要自己除以 `holder_count`）/ `wallet_tags_stat.smart_wallets` / `whale_wallets` |
 | 主池 DEX 类型（EVM gas 用量用） | `pool.exchange`（如 `uniswap_v4`、`pancake_v2`） |
-| **蜜罐第 4 层判据** | `price.sells_24h > 0` → 有真实卖出即非蜜罐 |
+| **蜜罐第 4 层判据**（来自 `token info` 的 `price` 对象） | `price.sells_24h > 0` → 有真实卖出即非蜜罐 |
 | 市值 | `price.price × circulating_supply`（无直接市值字段） |
 | 持有人数 | `holder_count` |
 | 开发者持仓 | `stat.creator_hold_rate` —— 这才是开发者当前持仓比例；**`dev.top_10_holder_rate` 是「Top10 里开发者相关地址占比」，不是开发者持仓**，两者混用会误判 |
 | 开发者 | `dev.creator_token_status`（`creator_close`=已清仓）/ `dev.top_10_holder_rate` / `dev.twitter_name_change_history`（改名=跑路信号） |
-| 风险画像 | `stat.top_rat_trader_percentage`（老鼠仓）/ `top_bot_degen_percentage`（机器人）/ `top_bundler_trader_percentage`（捆绑）/ `top70_sniper_hold_rate`（狙击） |
+| 风险画像（均来自 `token info` 的 `stat` 对象） | `stat.top_rat_trader_percentage`（老鼠仓）/ `stat.top_bot_degen_percentage`（机器人）/ `stat.top_bundler_trader_percentage`（捆绑）/ `stat.top70_sniper_hold_rate`（狙击） |
 | 创建时间 | `creation_timestamp`（Unix **秒**）。⚠️ **可能是 `0`**，那是"未知"而不是 1970 年——实测 BONK 的 `creation_timestamp` 与 `open_timestamp` 都是 `0`，直接拿它算存续会得出 56 年。取到 `0` 就把存续时长记为未知，跳过存续加成，**绝不能当成"老盘"给加分**。 |
 
 ⚠️ **主池某一侧的折美元储备可能是 `"0"`，而池子完全正常。** 实测 BONK 主池（meteora_dlmm）`base_reserve_value` = `"0"`、`quote_reserve_value` = `$41,687`——上游没给 BONK 那一侧定价，不是池子里没有 BONK（`base_reserve` 有 147 亿枚）。此时 `min()` 会算出 $0 深度，把一个百万持有人的蓝筹判成"深度不足"，这是把**数据缺失误当风险结论**。所以：两侧都 > 0 时取较小值（更保守），**任一侧为 0 或缺失时退回 `pool.liquidity / 2`**。
@@ -71,16 +71,16 @@
 
 ## `token security` 字段映射 + 蜜罐四层
 
-| 用途 | 字段 | 适用链 |
-|---|---|---|
-| 蜜罐（四层：任一有值即用） | ① `is_honeypot` → ② `honeypot` 整数(0安全/1蜜罐/−1未测) → ③ `can_not_sell=1` → ④ 上面 info 的 `sells_24h>0` | 两链 |
-| 买 / 卖税 | `buy_tax` / `sell_tax`（空串=未测，不当成 0） | 两链 |
-| Top10 持仓 | `top_10_holder_rate` | 两链 |
-| 合约权限已放弃 | `is_renounced` / `renounced` | **仅 EVM** |
-| 开源 | `is_open_source` | **仅 EVM** |
-| 增发权限已撤 | `renounced_mint` | **仅 Solana** |
-| 冻结权限已撤 | `renounced_freeze_account` | **仅 Solana** |
-| 锁仓 / 销毁 | `lock_summary.is_locked` + `lock_percent`（**必须一起读**）/ `lock_detail[].is_blackhole`（黑洞=已销毁） | 两链 |
+| 用途 | 字段 | 适用链 | 来源 |
+|---|---|---|---|
+| 蜜罐（四层：任一有值即用） | ① `is_honeypot` → ② `honeypot` 整数(0安全/1蜜罐/−1未测) → ③ `can_not_sell=1` → ④ 上面 info 的 `price.sells_24h>0` | 两链 | ①–③ 来自 `token security`，④ 来自 `token info`（`price` 对象） |
+| 买 / 卖税 | `buy_tax` / `sell_tax`（空串=未测，不当成 0） | 两链 | `token security` |
+| Top10 持仓 | `top_10_holder_rate` | 两链 | `token security` |
+| 合约权限已放弃 | `is_renounced` / `renounced` | **仅 EVM** | `token security` |
+| 开源 | `is_open_source` | **仅 EVM** | `token security` |
+| 增发权限已撤 | `renounced_mint` | **仅 Solana** | `token security` |
+| 冻结权限已撤 | `renounced_freeze_account` | **仅 Solana** | `token security` |
+| 锁仓 / 销毁 | `lock_summary.is_locked` + `lock_percent`（**必须一起读**）/ `lock_detail[].is_blackhole`（黑洞=已销毁） | 两链 | `token security` |
 
 🚨 **这几个字段是分链的，跨链读会把蓝筹币误判成风险币。** 实测对照：
 
@@ -93,7 +93,7 @@
 - **在 EVM 上，`renounced_mint` / `renounced_freeze_account` 恒为 `false`，这是"该链没有这个概念"，不是"权限没放弃"。** 拿它当扣分项会直接把 PEPE 这种币拦下。EVM 看 `is_renounced`。
 - **在 Solana 上，`is_renounced` / `is_open_source` 恒为 `null`。** 按三态规则记 `None`（未知），**不算不通过**，也不要因此判"数据缺失"。Solana 看 `renounced_mint` / `renounced_freeze_account`。
 - **`is_locked=true` 单独没有意义**——PEPE 实测 `is_locked=true` 而 `lock_percent=0.00009`（约 0%）。必须读 `lock_percent`。
-- **蓝筹币的 `honeypot` 也可能是 `-1`（未测）**——PEPE 实测就是。所以四层回退是必需的，不是冗余；`honeypot=-1` 只是"没测"，配合 `can_not_sell=0` 与 `sells_24h>0` 才能下"非蜜罐"的结论。
+- **蓝筹币的 `honeypot` 也可能是 `-1`（未测）**——PEPE 实测就是。所以四层回退是必需的，不是冗余；`honeypot=-1` 只是"没测"，配合 `can_not_sell=0` 与 `price.sells_24h>0` 才能下"非蜜罐"的结论。
 
 **三态映射**：字段缺席、为 `null` 或空串一律 `None`（未知），绝不退化成 `False`/`0`——否则"未检测"会显示成"蜜罐否 / 0% 税 / 已弃权"，把空白包装成安全。**判"数据缺失、不能买"要按该链应有的字段数来数**，别拿 EVM 的字段清单去数一个 Solana 币。
 

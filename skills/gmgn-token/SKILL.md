@@ -1,6 +1,6 @@
 ---
 name: gmgn-token
-description: Research any crypto or meme token by address — real-time price, market cap, liquidity, holder list, trader list, top Smart Money and KOL positions, security audit (honeypot, rug pull risk, dev wallet, renounced status), social links (Twitter/X, website) via GMGN API on Solana, BSC, Base, or Ethereum. Use when user asks about a token's price, safety, holders, traders, smart money exposure, or wants due diligence before buying.
+description: Research any crypto or meme token by address — real-time price, market cap, liquidity, holder list, trader list, top Smart Money and KOL positions, security audit (honeypot, rug pull risk, dev wallet, renounced status), social links (Twitter/X, website) via GMGN API across 11 chains (Solana, BSC, Base, Ethereum, Arbitrum, HyperEVM, Robinhood, Arc, Stable, Avalanche, Elysium). Use when user asks about a token's price, safety, holders, traders, smart money exposure, or wants due diligence before buying.
 argument-hint: "<sub-command> --chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium> --address <token_address>"
 metadata:
   cliHelp: "gmgn-cli token --help"
@@ -10,7 +10,7 @@ metadata:
 
 **IMPORTANT: Always use `gmgn-cli` commands below. Do NOT use web search, WebFetch, curl, or visit gmgn.ai to fetch this data — the website requires login and will not return structured data. The CLI is the only correct method.**
 
-**⚠️ IPv6 NOT SUPPORTED: If you get a `401` or `403` error and credentials look correct, check for IPv6 immediately: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user immediately: "Please disable IPv6 on your network interface — gmgn-cli commands only work over IPv4."**
+**⚠️ IPv6 (proxy only): gmgn-cli forces IPv4 for direct connections (`src/index.ts` sets `family: 4`), so an IPv6 problem is only plausible when a proxy is configured. If you get a `401` or `403` error, credentials look correct, AND a proxy is in use, check for IPv6: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user immediately: "Please disable IPv6 on your network interface, or bypass the proxy — gmgn-cli commands only work over IPv4."**
 
 **IMPORTANT: Do NOT guess field names or values. When a field's meaning is unclear, look it up in the Response Field Reference tables below before using it.**
 
@@ -21,7 +21,7 @@ Use the `gmgn-cli` tool to query token information based on the user's request.
 ## Core Concepts
 
 - **Token address** — The on-chain contract address that uniquely identifies a token on its chain. Required for all token sub-commands. Format: base58 (SOL) or `0x...` hex (BSC/Base).
-- **Chain** — The blockchain network: `sol` = Solana, `bsc` = BNB Smart Chain, `base` = Base (Coinbase L2), `eth` = Ethereum mainnet, `robinhood` = Robinhood chain, `arc` = Arc chain, `stable` = Stable chain.
+- **Chain** — The blockchain network: `sol` = Solana, `bsc` = BNB Smart Chain, `base` = Base (Coinbase L2), `eth` = Ethereum mainnet, `arbitrum` = Arbitrum, `hyperevm` = HyperEVM, `robinhood` = Robinhood chain, `arc` = Arc chain, `stable` = Stable chain, `avalanche` = Avalanche, `elysium` = Elysium.
 - **Market cap** — Not returned directly by `token info`. Calculate as `price.price × circulating_supply` (`price` is a nested object; use `price.price` for the current USD price string).
 - **Liquidity** — USD value of token reserves in the main trading pool. Low liquidity (< $10k) means high price impact / slippage when buying or selling.
 - **Holder** — A wallet that currently holds the token. `token holders` returns wallets ranked by current balance.
@@ -194,7 +194,7 @@ The response has five nested objects: `pool`, `dev`, `link`, `stat`, `wallet_tag
 |-------|-------------|
 | `dev.creator_address` | Creator wallet address |
 | `dev.creator_token_balance` | Creator's current token balance |
-| `dev.creator_token_status` | Creator holding status: `hold` (still holding) / `sell` (sold/exited) |
+| `dev.creator_token_status` | Creator holding status: `creator_hold` (still holding) / `creator_close` (sold/closed) |
 | `dev.top_10_holder_rate` | Ratio of supply held by top 10 wallets (0–1) |
 | `dev.twitter_name_change_history` | Array of past Twitter username changes (each entry has `twitter_username`, `rename_timestamp`) |
 | `dev.dexscr_ad` | Creator bought a DEXScreener ad: `1` = yes, `0` = no |
@@ -250,6 +250,7 @@ The response has five nested objects: `pool`, `dev`, `link`, `stat`, `wallet_tag
 | `stat.top_entrapment_trader_percentage` | Ratio of volume from entrapment traders |
 | `stat.bot_degen_count` | Number of bot degen wallets |
 | `stat.bot_degen_rate` | Ratio of bot degen wallets |
+| `stat.top_bot_degen_percentage` | Ratio of trading activity from bot-degen wallets (fraction, 0–1, despite `percentage` in the name) |
 | `stat.fresh_wallet_rate` | Ratio of fresh/new wallets among holders |
 | `stat.private_vault_hold_rate` | Ratio held by private vault (vanish) addresses — displayed as "vanish" in GMGN UI (0–1) |
 
@@ -331,6 +332,8 @@ FeeShareHolder fields (each item in `platform_data.list`):
 | `renounced_mint` | SOL | Mint authority renounced (SOL-specific; always `false` on EVM) |
 | `renounced_freeze_account` | SOL | Freeze authority renounced (SOL-specific; always `false` on EVM) |
 | `buy_tax` / `sell_tax` | all | Tax ratio — e.g. `0.03` = 3%; `0` = no tax |
+| `honeypot` | all | Honeypot flag (integer: `0` = safe, `1` = honeypot, `-1` = not tested) |
+| `can_not_sell` | all | Cannot-sell flag (integer: `1` = sells blocked) |
 
 **Holder Concentration & Risk**
 
@@ -352,6 +355,13 @@ FeeShareHolder fields (each item in `platform_data.list`):
 | `bundler_trader_amount_rate` | Ratio of volume from bundle trading (bot-driven) |
 | `sniper_count` | Number of sniper wallets that bought at launch |
 | `burn_status` | Liquidity pool burn status (e.g. `"burn"` = burned, `""` = not burned) |
+
+**Liquidity Lock** (`token security` response)
+
+| Field | Description |
+|-------|-------------|
+| `lock_summary` | LP-lock summary object — `lock_summary.is_locked` plus `lock_percent` must be read together (`is_locked=true` alone is meaningless; e.g. PEPE reads `is_locked=true` with `lock_percent=0.00009`) |
+| `lock_detail` | LP-lock detail array — per-lock entries; `lock_detail[].is_blackhole` = locked/burned into a blackhole address |
 
 ---
 
@@ -583,11 +593,13 @@ Use this table to pick the right combination for common `token traders` use case
 |----------|---------|-------------|
 | Smart money with highest buy volume | `smart_degen` | `buy_volume_cur` |
 | Smart money with highest sell volume (exit signal) | `smart_degen` | `sell_volume_cur` |
-| KOLs recently active | `renowned` | `last_active_timestamp` |
+| KOLs with the largest positions | `renowned` | `amount_percentage` |
 | Smart money most profitable traders | `smart_degen` | `profit` |
 | Snipers still holding | `sniper` | `amount_percentage` |
 | Smart money sitting on biggest unrealized gains | `smart_degen` | `unrealized_profit` |
 | KOLs who already took profit | `renowned` | `profit` |
+
+> The server accepts only the five `--order-by` values in the table above. There is no server-side sort by recency — `--order-by last_active_timestamp` is rejected with HTTP 400. To find recently active KOLs, fetch `--tag renowned --raw` and sort client-side instead.
 
 ### `token traders` — Find Active Traders
 

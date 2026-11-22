@@ -57,7 +57,7 @@
 
 | 动作 | 怎么算 | 交给谁执行 |
 |---|---|---|
-| 改限价单 | 触发价 = 当前价 × (1 − 5m 回撤幅度的绝对值)，即按已观测到的回撤再让一档；两个数都读 `price.price` 与 `price.price_5m`。卡里要写明这是推导值及其出处，用户可以自己改 | `gmgn-swap`：`order strategy create --order-type limit_order --sub-order-type buy_low --check-price <触发价>` |
+| 改限价单 | 触发价 = 当前价 × (1 − 5m 回撤幅度的绝对值)，即按已观测到的回撤再让一档；两个数都读 `price.price` 与 `price.price_5m`。卡里要写明这是推导值及其出处，用户可以自己改 | `gmgn-swap`：`order strategy create --chain <链> --from <钱包地址> --base-token <CA> --quote-token <报价代币地址> --order-type limit_order --sub-order-type buy_low --check-price <触发价> --amount-in <金额>（或 `--amount-in-percent` <百分比>） --slippage <滑点>（或 `--auto-slippage`）`（`--check-price` 是 limit_order 的触发价，必填；`--amount-in` 与 `--amount-in-percent` 二选一，`--slippage` 与 `--auto-slippage` 二选一） |
 | 等待 | 写清等什么条件收敛：5m 回撤回到 5% 以内，或 5m 净流向（`buy_volume_5m` − `sell_volume_5m`）转正。不写"等一会儿"这种无判据的话 | 用户自己决定何时重跑本技能 |
 | 减小金额 | 沿用「二、」价格冲击那条的口径，不新增阈值 | 改 Step 3 的订单金额，仍走市价单 |
 
@@ -107,7 +107,7 @@ credible_liq    = 可交易深度
 credible_vol    = 24h 成交额
 credible_cap    = min(市值/FDV, max(credible_liq, credible_vol) × 50)   ← 掐住"市值靠拉盘伪造"
 credible_holder = min(持有人数, 50000)
-分数 = (credible_liq × credible_vol × credible_cap × 持有人因子) ^ (1/命中项数)
+分数 = (credible_liq × credible_vol × credible_cap × credible_holder) ^ (1/命中项数)
 ```
 同名候选再乘"存续时长"先验（只进排序、绝不进闸，上限 4.1 倍，有社交只加分）。命中方式分档：地址(4.0) > 符号(3.0) > 名称(2.0) > 去分隔符一致(1.5/1.2) > 模糊(0)，同档内才比分。
 

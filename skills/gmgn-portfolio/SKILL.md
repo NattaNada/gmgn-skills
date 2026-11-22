@@ -10,7 +10,14 @@ metadata:
 
 **IMPORTANT: Always use `gmgn-cli` commands below. Do NOT use web search, WebFetch, curl, or visit gmgn.ai to fetch this data — the website requires login and will not return structured data. The CLI is the only correct method.**
 
-**⚠️ IPv6 NOT SUPPORTED: If you get a `401` or `403` error and credentials look correct, check for IPv6 immediately: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user immediately: "Please disable IPv6 on your network interface — gmgn-cli commands only work over IPv4."**
+**⚠️ IPv6: only relevant behind a proxy.** `gmgn-cli` forces IPv4 for direct connections
+(`src/index.ts` builds its connector with `family: 4` when no proxy is set), so on a direct
+connection a `401`/`403` is not an IPv6 problem — do not tell the user to change network
+settings. Only when the CLI runs through an HTTP(S) proxy (`HTTPS_PROXY`/`HTTP_PROXY` set,
+where the proxy path does not force IPv4) is IPv6 worth checking: list interfaces
+(`ifconfig | grep inet6` on macOS, `ip addr show | grep inet6` on Linux) and fetch
+`https://ipv6.icanhazip.com` — if an IPv6 address comes back, outbound traffic may be going
+via IPv6, and disabling IPv6 on that interface is the fix to try.
 
 Use the `gmgn-cli` tool to query wallet portfolio data based on the user's request.
 
@@ -20,15 +27,15 @@ Use the `gmgn-cli` tool to query wallet portfolio data based on the user's reque
 
 - **`realized_profit` vs `unrealized_profit`** — `realized_profit` = profit locked in from completed sells (cash in hand). `unrealized_profit` = paper gains on positions still held, calculated at current price. These are separate numbers — do not add them unless answering "total P&L including open positions."
 
-- **`profit_change`** — A multiplier ratio, not a dollar amount. `1.5` = +150% return. `0` = break-even. `-0.5` = -50% loss. Computed as `total_profit / cost`. Do not display this as a raw decimal — convert to percentage for user-facing output.
+- **`total_profit_pnl`** — A multiplier ratio, not a dollar amount. `1.5` = +150% return. `0` = break-even. `-0.5` = -50% loss. Computed as `total_profit / accu_cost`. Do not display this as a raw decimal — convert to percentage for user-facing output.
 
-- **`pnl`** — Profit/loss ratio from `portfolio stats`: `realized_profit / total_cost`. Same multiplier format as `profit_change`. A `pnl` of `2.0` means the wallet doubled its money on completed trades over the period.
+- **`pnl`** — Profit/loss ratio from `portfolio stats`: `realized_profit / total_cost`. Same multiplier format as `total_profit_pnl`. A `pnl` of `2.0` means the wallet doubled its money on completed trades over the period.
 
 - **`winrate`** — Ratio of profitable trades over the period (0–1). `0.6` = 60% of trades were profitable. Does not reflect the size of wins vs losses — a wallet can have high winrate but net negative if losses are large.
 
-- **`cost` vs `usd_value`** — In holdings: `cost` is the historical amount spent buying this token (your cost basis); `usd_value` is the current market value of the position. The difference is unrealized P&L.
+- **`accu_cost` vs `usd_value`** — In holdings: `accu_cost` is the cost basis of the position still held; `usd_value` is the current market value of the position. The difference is unrealized P&L.
 
-- **`history_bought_cost` vs `cost`** — `history_bought_cost` is the all-time cumulative spend on this token (including positions already sold). `cost` is the cost basis of the current open position only.
+- **`history_bought_cost` vs `accu_cost`** — `history_bought_cost` is the all-time cumulative spend on this token (including positions already sold). `accu_cost` is the cost basis of the current open position only.
 
 - **Pagination (`cursor`)** — Activity results are paginated. The response includes a `next` field; pass it as `--cursor` to fetch the next page. An empty or missing `next` means you are on the last page.
 
@@ -99,8 +106,8 @@ gmgn-cli portfolio holdings \
   --chain sol --wallet <wallet_address> \
   --order-by usd_value --direction desc --limit 20
 
-# Include sold-out positions
-gmgn-cli portfolio holdings --chain sol --wallet <wallet_address> --sell-out
+# Include sold-out positions (closed positions are hidden by default)
+gmgn-cli portfolio holdings --chain sol --wallet <wallet_address> --hide-closed false
 
 # Transaction activity
 gmgn-cli portfolio activity --chain sol --wallet <wallet_address>
@@ -174,6 +181,8 @@ gmgn-cli portfolio token-balance \
 | `--cursor <cursor>` | Pagination cursor |
 | `--order-by <field>` | Sort field: `usd_value` / `last_active_timestamp` / `realized_profit` / `unrealized_profit` / `total_profit` / `history_bought_cost` / `history_sold_income` (default `usd_value`) |
 | `--direction <asc\|desc>` | Sort direction (default `desc`) |
+| `--interval <interval>` | Stats interval (default `24h`) |
+| `--tx30d` | Only show positions with trades in the last 30 days |
 | `--hide-abnormal <bool>` | Hide abnormal positions: `true` / `false` (default: `false`) |
 | `--hide-airdrop <bool>` | Hide airdrop positions: `true` / `false` (default: `true`) |
 | `--hide-closed <bool>` | Hide closed positions: `true` / `false` (default: `true`) |
@@ -248,7 +257,8 @@ names are not accepted as aliases.
 | `start_holding_at` / `end_holding_at` / `last_active_timestamp` | Position lifetime |
 | `wallet_token_tags` | Per-position tags |
 
-There is **no `--sell-out` flag** — gmgn-cli 1.5.8 rejects it as an unknown option. `avg_cost`
+There is **no `--sell-out` flag** — gmgn-cli rejects it as an unknown option. Sold-out
+(closed) positions are hidden by default; show them with `--hide-closed false`. `avg_cost`
 is not returned; derive it from `accu_cost / balance`.
 
 ### `portfolio activity` — Key Fields
@@ -388,7 +398,7 @@ Total value: ~${sum of usd_value across all positions}
 # | Token | Balance | USD Value | Total P&L | P&L% | Avg Cost | Buys / Sells
 ```
 
-Flag positions where `profit_change` is strongly negative (e.g. < -50%) or positive (e.g. > 200%) with a brief note.
+Flag positions where `total_profit_pnl` is strongly negative (e.g. < -50%) or positive (e.g. > 200%) with a brief note.
 
 ### `portfolio activity` — Activity Feed
 

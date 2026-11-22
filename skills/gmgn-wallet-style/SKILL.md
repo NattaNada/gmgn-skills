@@ -33,7 +33,7 @@ no third call.
 
 ## Supported Chains
 
-`sol`, `bsc`, `base`, `eth`, `arbitrum`, `hyperevm`, `robinhood`, `arc`, `stable` — the chains
+`sol`, `bsc`, `base`, `eth`, `arbitrum`, `hyperevm`, `robinhood`, `arc`, `stable`, `avalanche`, `elysium` — the chains
 `gmgn-cli portfolio stats` and `portfolio activity` accept. Treat this as an allowlist: any other
 value is rejected before a command runs, never passed through.
 
@@ -48,7 +48,7 @@ Nothing else. No Python, no local script, no other tool.
 
 | Parameter | Required | Description |
 |-----------|----------|--------------|
-| `--chain` | Yes | One of the nine chains above. `sol` for a base58 address; for `0x…` use the chain the user names, else `bsc` |
+| `--chain` | Yes | One of the eleven chains above. `sol` for a base58 address; for `0x…` use the chain the user names, else `bsc` |
 | `--wallet` | Yes | Wallet address — **not** a token contract |
 | `--period` | No | `7d` (default) or `30d`. Only these two exist |
 
@@ -115,12 +115,11 @@ gmgn-cli portfolio activity --chain <chain> --wallet <address> --limit 50 --curs
 the previous page's `next`. Pull **4 pages (200 rows)** — on real wallets this yields 20–70+
 complete round trips.
 
-**Before parsing JSON, strip any line starting with `[gmgn-cli]`.** That is the CLI's own
-injection-defense notice printed ahead of the JSON body (e.g. `[gmgn-cli] Notice: neutralized 4
-suspicious metadata value(s)...`) — measured on real wallets, roughly 1 in 5 trips one. Feeding
-raw stdout straight to a JSON parser fails on exactly those wallets with a misleading "non-JSON
-response" error. The notice itself is a real finding about the wallet's book (a token it traded
-carried injection-attempt metadata) — mention it, never crash on it.
+**The `[gmgn-cli]` notice goes to stderr, not stdout.** It is printed with `console.error`
+(`src/output.ts`), so stdout is pure JSON: if you capture stdout separately, parse it directly
+— no stripping needed. Strip lines starting with `[gmgn-cli]` **only if you merged stdout and
+stderr into one stream** before parsing. The notice itself is a real finding about the wallet's
+book (a token it traded carried injection-attempt metadata) — mention it, never crash on it.
 
 Ignore `transferIn` / `transferOut` rows entirely — airdrops and internal moves are not trades.
 

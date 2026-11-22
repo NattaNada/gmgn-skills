@@ -1202,11 +1202,11 @@ def collect(chain, wallet, gaps):
             )
 
     # ── Tier 2: behaviour. activity is the only source of the copy window and the entry
-    # band, and the page count stays at 3 — trimming it would move G3's entry p50 and
+    # band, and the page count stays at 6 — trimming it would move G3's entry p50 and
     # starve the sample gates, which changes what is measured, not how fast.
     acts, cursor = [], None
-    for _page in range(3):
-        args = ["portfolio", "activity", "--chain", chain, "--wallet", wallet, "--limit", "100"]
+    for _page in range(6):
+        args = ["portfolio", "activity", "--chain", chain, "--wallet", wallet, "--limit", "50"]
         if cursor:
             args += ["--cursor", str(cursor)]
         try:

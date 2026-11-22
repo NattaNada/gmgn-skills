@@ -40,7 +40,7 @@ description: >-
   same coin or whether he called it first (no per-token caller list exists in the CLI, so
   it is not computable at all); how much he staked on a call (readable only in the
   unfilterable global feed); anything older than 30 days (callout record covers 30d only).
-argument-hint: "--chain <sol|bsc|eth|base|megaeth|hyperevm|tron|monad|xlayer|robinhood|arbitrum|arc|stable> --wallet <caller_address> | --handle <twitter_username>"
+argument-hint: "--chain <sol|bsc|eth|base|megaeth|hyperevm|tron|monad|xlayer|robinhood|arbitrum|arc|stable|avalanche|elysium> --wallet <caller_address> | --handle <twitter_username>"
 metadata:
   cliHelp: "gmgn-cli callout record --help"
 ---
@@ -51,7 +51,7 @@ metadata:
 
 **IMPORTANT: Do NOT guess field names. Every field this skill reads is listed in Core Concepts or Fields Read below; nothing outside those tables is confirmed against the live API.**
 
-**⚠️ IPv6 NOT SUPPORTED: If you get a `401` or `403` and credentials look correct, check IPv6 at once: run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux), then `curl https://ipv6.icanhazip.com`. If that returns an IPv6 address, tell the user: "Please disable IPv6 on your network interface — gmgn-cli commands only work over IPv4."**
+**⚠️ IPv6 NOT SUPPORTED: If you get a `401` or `403` and credentials look correct, check IPv6 by listing local interfaces only: run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux). Do not call any third-party IP-echo service to check this: the local listing already answers it, and this skill contacts GMGN and nothing else. `gmgn-cli` forces IPv4 for direct connections (`src/index.ts`), so disabling IPv6 only matters when traffic goes through a proxy — check that case first, and only then tell the user: "Please disable IPv6 on your network interface — gmgn-cli commands only work over IPv4."**
 
 ## Preset phrases
 
@@ -127,7 +127,8 @@ read this table before using any of them.
 ## Supported chains
 
 `sol` / `bsc` / `eth` / `base` / `megaeth` / `hyperevm` / `tron` / `monad` / `xlayer` /
-`robinhood` / `arbitrum` / `arc` / `stable` for `callout record`.
+`robinhood` / `arbitrum` / `arc` / `stable` / `avalanche` / `elysium` for `callout record`
+(the full `CALLOUT_CHAINS` set in `src/validate.ts`).
 
 The conduct axis additionally needs `portfolio activity` and `portfolio stats`, which cover
 `sol` / `bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche` / `elysium`.
@@ -199,8 +200,11 @@ scoring, and the resolution is echoed in the report.
    the report that the tie was broken that way.
 
 **Given a bare wallet address with no chain:** a base58 address is `sol`; a `0x` address is
-probed on **`bsc` then `robinhood` first**, and only if both are empty on the rest. Every
-caller measured so far called on BSC and had zero call-outs on SOL.
+probed on the callout chains in this fixed order — **`bsc` → `robinhood` → `sol` → `base` →
+`eth` → `arbitrum` → `hyperevm` → `arc` → `stable` → `avalanche` → `elysium` → `megaeth` →
+`tron` → `monad` → `xlayer`** — stopping at the first chain with call-outs. (In practice
+probe every chain in that order rather than guessing a subset: every caller measured so far
+called on BSC and had zero call-outs on SOL, but that is an observation, not a rule.)
 
 **Never carry a tag across chains.** One handle's SOL wallet held a `wash_trader` tag while
 the BSC wallet that actually made its 706 calls did not. A tag belongs to the address it was
@@ -228,15 +232,18 @@ trading record is `gmgn-wallet-analysis`, and a token address pasted by mistake 
    `portfolio activity --chain <c> --wallet <w> --token <t> --limit 50 --raw` for each,
    concurrently. Deduplicate called contracts **by address, never by symbol** — one caller
    called two different contracts both named `FTR`.
-5. Only if `common.created_token_count > 0`: `portfolio created-tokens`. Otherwise skip the
-   call entirely.
+5. Only if `common.created_token_count > 0`: `portfolio created-tokens --chain <c> --wallet <w> --raw`. Otherwise skip the
+   call entirely. (`--chain` and `--wallet` are both required by the CLI — `portfolio created-tokens` with no flags fails.)
 
 If a sampled contract returns no `activities` rows, that contract yields no conduct
 measurement — drop it and take the next most-called contract rather than reading the empty
 response as "he never sold". If fewer than two contracts end up measurable, the conduct axis
 cannot reach a tier: say so, and let Step 4's independent gates carry the verdict.
 `portfolio activity` also caps at 50 rows per page; when `next` is non-empty the ledger is a
-window, so a net figure computed from it is a floor, and the report must say so.
+window, so a net figure computed from it is a floor, and the report must say so. Page it:
+repeat `portfolio activity --chain <c> --wallet <w> --token <t> --limit 50 --cursor <next> --raw`
+until `next` comes back empty. Note the flag is **`--cursor`** here — `--page-token` belongs to
+`callout record`, not to `portfolio activity`, and passing it there fails.
 
 ## Step 2 — Selection axis
 
@@ -567,12 +574,12 @@ does not re-litigate them from scratch.
 This skill reads the callout endpoints through the same commands `gmgn-callout` documents
 and adds a verdict on top; it never replaces that skill's field reference.
 
-**One documented disagreement, stated so a reader is not left guessing.** The `gmgn-callout`
-field table describes `multiplier` as "current price ÷ call price". The measurement in Core
-Concepts above shows it is the **peak since the call** ÷ call price, and that `price_change`
-is the current ratio minus 1. Where the two documents differ, the proof in Core Concepts is
-the one this skill acts on. Reading `multiplier` as a current ratio would turn "ever touched
-2×" into "is up 2× now" and overstate every caller's record.
+**Agreement with `gmgn-callout`, stated so a reader is not left guessing.** An earlier
+version of the `gmgn-callout` field table described `multiplier` as "current price ÷ call
+price". That has been corrected: both documents now define `multiplier` as the **peak since
+the call** ÷ call price and `price_change` as the current ratio minus 1, on the proof in Core
+Concepts above. Reading `multiplier` as a current ratio would turn "ever touched 2×" into
+"is up 2× now" and overstate every caller's record.
 
 ## Fields read
 

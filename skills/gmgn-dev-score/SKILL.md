@@ -42,23 +42,38 @@ metadata:
 
 **IMPORTANT: Always use the pre-installed `gmgn-cli` binary. Never use web search, WebFetch, curl, `npx`, or gmgn.ai — the site requires login and exposes no structured data.**
 
-**⚠️ IPv6 IS NOT SUPPORTED.** On a `401`/`403` with correct credentials, check `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux) and fetch `https://ipv6.icanhazip.com`. If an IPv6 address comes back, tell the user to disable IPv6 — `gmgn-cli` works over IPv4 only.
+**⚠️ IPv6: only relevant behind a proxy.** `gmgn-cli` forces IPv4 for direct connections
+(`src/index.ts` builds its connector with `family: 4` when no proxy is set), so on a direct
+connection a `401`/`403` is not an IPv6 problem — do not tell the user to change network
+settings. Only when the CLI runs through an HTTP(S) proxy (`HTTPS_PROXY`/`HTTP_PROXY` set,
+where the proxy path does not force IPv4) is IPv6 worth checking: list interfaces
+(`ifconfig | grep inet6` on macOS, `ip addr show | grep inet6` on Linux) and fetch
+`https://ipv6.icanhazip.com` — if an IPv6 address comes back, outbound traffic may be going
+via IPv6, and disabling IPv6 on that interface is the fix to try.
 
 ## Run
 
 ```bash
-python3 ~/.claude/skills/gmgn-dev-score/dev_score.py <chain> <dev_address> [max_pages]
+python3 skills/gmgn-dev-score/dev_score.py <chain> <dev_address> [max_pages] [mode]
 ```
 
+Run from the repo root; when the skill is installed, the script is `<skill-dir>/dev_score.py`
+(e.g. `~/workspace/custom-skills/gmgn-dev-score/dev_score.py`). The old
+`~/.claude/skills/gmgn-dev-score/dev_score.py` path does not exist on this deployment —
+do not use it.
+
 `max_pages` defaults to 25 and only bounds the trade walk; raise it for a dev with hundreds of
-launches — the JSON says when it truncated. The script prints one JSON object on stdout (progress
+launches — the JSON says when it truncated. `mode` is `default` or `brief` (default
+`default`): `brief` skips the cross-wallet exit check, so it is cheaper when screening many
+devs, but a supply move to another wallet will not be detected in `brief` mode — use it only
+for a first pass, and re-run in `default` mode before a buy decision. The script prints one JSON object on stdout (progress
 and rate-limit notes go to stderr). It computes; it writes no report. **You** write the report, from
 that object, in the user's language.
 
 Before running:
 
 - **Token address, not a wallet?** Resolve the creator first with `gmgn-cli token info --chain <c> --address <token> --raw` → `dev.creator_address`, and score that. Say which address you resolved to — it is the one thing the report cannot show, and without it the user cannot check that the score applies to their token.
-- **Chain not given?** Probe candidate chains **sequentially** with `gmgn-cli portfolio created-tokens` — never in parallel, which bans the key. Analyse only the chain with the highest `open_count`, and tell the user the other chains were deferred until asked.
+- **Chain not given?** Probe candidate chains **sequentially** with `gmgn-cli portfolio created-tokens` — never in parallel, which bans the key. Analyse only the chain with the highest `open_count`, and tell the user the other chains were deferred until asked. **Every deferred chain gets one footer line** naming its launch count and its `creator_ath_info.ath_mc` (both come back in the same probe call, at zero extra cost) — a deferred chain must be disclosed, never hidden. **When a deferred chain's `ath_mc` is 3× or more than the analysed chain's, say so in words on that footer line** — the user has to know the bigger story is on the other chain before deciding whether to ask for it.
 - `scored: false` means **do not produce a score**. `reason: index_empty` → the API reads entirely empty and an empty wallet cannot be told from a degraded index; say both readings and tell the user to re-check in a few minutes. Any other `reason` → say the address was not scored and why, and stop.
 
 ## What the answer has to contain

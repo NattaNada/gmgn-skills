@@ -2,7 +2,7 @@
 name: gmgn-heat-rank
 description: >-
   Produce THE list of tokens that are hot RIGHT NOW and safe enough to look at,
-  across every chain GMGN supports, scored 0-100 and capped at ten names. This
+  across seven chains, scored 0-100 and capped at ten names. This
   is a screening skill: it starts from no address, sweeps all seven chains,
   gates every candidate on liquidity / real volume / concentration / rug-and-dev
   risk, scores the survivors on one cross-chain scale, and returns however many
@@ -14,7 +14,7 @@ description: >-
   "screen the trending list for me". The same questions in any other language
   route here too - match on meaning, not wording. DO NOT USE THIS SKILL for a
   raw ranking dump ("show me the top 20 by volume on sol", "1h trending",
-  "hot search list") - that is `gmgn-market trending` / `hot-searches`, which
+  "hot search list") - that is `gmgn-cli market trending` / `gmgn-cli market hot-searches`, which
   returns the exchange's own ordering untouched; nor for freshly launched
   bonding-curve tokens ("just launched", "pump.fun new", "新盘") - that is
   `gmgn-market trenches`; nor for one address the user already has ("is this
@@ -32,7 +32,7 @@ description: >-
   the wording alone collides with `gmgn-market` - "hot coins", "what's pumping",
   "trending tokens", "热门币", "什么币在涨" - the deciding test is the shape of the
   answer being asked for: an untouched ranking of N rows in the exchange's own
-  order is `gmgn-market trending`; a short list that survived risk gates, carries
+  order is `gmgn-cli market trending`; a short list that survived risk gates, carries
   a score and can be acted on is this skill. A bare ambiguous ask with no other
   signal defaults here, because this skill can point at the raw ranking while the
   raw ranking cannot screen itself. Nothing has to be supplied to run it - the
@@ -49,14 +49,14 @@ metadata:
 
 **IMPORTANT: Always use the pre-installed `gmgn-cli` binary. Never use web search, WebFetch, curl, `npx`, or gmgn.ai — the site requires login and exposes no structured data.**
 
-**⚠️ IPv6 IS NOT SUPPORTED.** On a `401`/`403` with correct credentials, check `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux) and fetch `https://ipv6.icanhazip.com`. If an IPv6 address comes back, tell the user to disable IPv6 — `gmgn-cli` works over IPv4 only.
+**⚠️ IPv6 IS NOT SUPPORTED.** On a `401`/`403` with correct credentials, check the local interfaces only: `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux). Do not call any third-party IP-echo service to check this — the local listing already answers it, and this skill contacts GMGN and nothing else. `gmgn-cli` forces IPv4 for direct connections (`src/index.ts`), so disabling IPv6 only matters when traffic goes through a proxy — check that case first, and only then tell the user to disable IPv6 — `gmgn-cli` works over IPv4 only.
 
 ## What this skill is for, and what it is not
 
 | The user's question | Goes to |
 |---|---|
 | "what is hot and worth looking at" — no address given, wants a chosen list | **here** |
-| "top N by volume / swaps on chain X", "hot coins", "what's pumping", "hot search list" — wants the raw ranking in the exchange's own order | `gmgn-market trending` / `market hot-searches` |
+| "top N by volume / swaps on chain X", "hot coins", "what's pumping", "hot search list" — wants the raw ranking in the exchange's own order | `gmgn-cli market trending` / `gmgn-cli market hot-searches` |
 | "just launched", "new tokens", bonding-curve stage | `gmgn-market trenches` |
 | one token address + "safe?" / "score it" | `gmgn-contract-dd` |
 | a token by name + "should I buy N dollars of it" | `gmgn-token-buy` |
@@ -495,7 +495,7 @@ def risknum(t,k,f):
     return 0.0
 
 MIN_LIQ,MIN_VOL24,MIN_TURN,MAX_TOP10,MAX_BOT=100_000,800_000,0.05,0.30,0.85
-MIN_VOL1H=20_800   # pace gate: last-1h run rate must imply >=500k/day, independent of MIN_VOL24
+MIN_VOL1H=20_834   # pace gate: last-1h run rate must imply >=500k/day, independent of MIN_VOL24 (20,834 x 24 = 500,016)
 MIN_POS,MIN_HOLDERS=0.20,500
 HARD_POS = 0.10             # unconditional drawdown floor: down to 10% of its own peak is a falling knife however hot
 MAX_RUG  = 0.15             # platform rug score: age-independent, same on both tracks

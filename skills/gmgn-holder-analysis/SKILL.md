@@ -1,7 +1,7 @@
 ---
 name: gmgn-holder-analysis
 description: Token holder chip analysis — deep analysis of holder structure including chip distribution, entry cost, whale/dev/KOL behavior, risk wallets (rat traders, bundlers, snipers), related wallets, smart money signals, and an AI rating based purely on token structure. Use when user asks about holder analysis, 筹码分析, 持仓分析, chip structure, who is holding, or whether a token is safe to buy based on its holder composition.
-argument-hint: "--chain <sol|bsc|base|eth|robinhood|arc|stable|avalanche|elysium> --address <token_address>"
+argument-hint: "--chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium> --address <token_address>"
 metadata:
   cliHelp: "gmgn-cli token holders --help && gmgn-cli portfolio created-tokens --help"
 ---
@@ -17,10 +17,15 @@ When the user asks to analyze holders for a token, extract `--chain` and `--addr
 Run the following command, replacing the placeholders with the actual values:
 
 ```bash
-python3 ~/.claude/skills/gmgn-holder-analysis/analyze.py <FILL_IN_TOKEN_ADDRESS> <FILL_IN_CHAIN> <FILL_IN_LANG>
+python3 skills/gmgn-holder-analysis/analyze.py <FILL_IN_TOKEN_ADDRESS> <FILL_IN_CHAIN> <FILL_IN_LANG>
 ```
 
-- FILL_IN_CHAIN: `sol` for Solana addresses; for EVM `0x...` addresses use `auto` unless the user explicitly specifies a chain (`bsc`/`eth`/`base`)
+Run from the repo root; when the skill is installed, the script is `<skill-dir>/analyze.py`
+(e.g. `~/workspace/custom-skills/gmgn-holder-analysis/analyze.py`). The old
+`~/.claude/skills/gmgn-holder-analysis/analyze.py` path does not exist on this deployment —
+do not use it.
+
+- FILL_IN_CHAIN: `sol` for Solana addresses; for EVM `0x...` addresses use `auto` unless the user explicitly specifies a chain (`bsc`/`eth`/`base`/`arbitrum`/`hyperevm`/`robinhood`/`arc`/`stable`/`avalanche`/`elysium`)
 - FILL_IN_LANG: `zh` if user wrote Chinese, `en` if English, default `zh`
 
 ## Output Rule
@@ -221,7 +226,7 @@ contradict the rating above it.
 
 ## Supported Chains
 
-`sol`, `bsc`, `base`, `eth`, `robinhood`, `arc`, `stable`, `avalanche`, `elysium`
+`sol`, `bsc`, `base`, `eth`, `arbitrum`, `hyperevm`, `robinhood`, `arc`, `stable`, `avalanche`, `elysium`
 
 ## Dev lookup is dual-source
 
@@ -243,12 +248,15 @@ when the primary source fails, so it costs nothing on tokens where the tag works
   whether any top-100 holder's `native_transfer.from_address` **is** the creator, i.e. the dev paid
   that wallet's gas. A hit is reported as the danger and names the wallets; a miss is not reported as
   clean, since only 57% of holders carry that field on the measured token.
+- the creator's share of supply is derived from `creator_token_balance` ÷ the estimated total
+  supply (same units as holders' `balance`), and the `created-tokens` history is still fetched
+  for the recovered creator address.
 
 ## Notes
 
 - `balance >= 1` threshold avoids dust false positives when identifying dev holdings
 - SOL `native_balance` is in lamports (÷1e9); `bsc`/`eth`/`base` are in wei (÷1e18). Decimals for
-  `arc`/`stable`/`robinhood`/`avalanche`/`elysium` are unconfirmed, so the buying-power section reports "not assessed"
+  `arbitrum`/`hyperevm`/`arc`/`stable`/`robinhood`/`avalanche`/`elysium` are unconfirmed, so the buying-power section reports "not assessed"
   on those chains rather than printing a converted figure that would be wrong.
 - Holder buying power needs a live native-token price, fetched with `token info` on the wrapped
   native address (`So111…1112` / WBNB / WETH / Base WETH). When that call fails, the section falls

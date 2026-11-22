@@ -3,7 +3,7 @@
 
 Usage:  python3 dev_score.py <chain> <dev_address> [max_pages] [mode]
 
-  chain        sol | bsc | eth | base | tron | ...
+  chain        sol | bsc | base | eth | arbitrum | hyperevm | robinhood | arc | stable | avalanche | elysium
   dev_address  the wallet that launched the coins
   max_pages    buy/sell pages to walk, 20 rows each (default 25)
   mode         default | brief   (brief skips the cross-wallet exit check)
@@ -621,10 +621,10 @@ if top1:
         st  = (d_.get('creator_token_status') or '')
         bal = _f(d_.get('creator_token_balance'))
         top1_bal = bal
-        if st or bal: top1_hold = (st == 'creator_hold') or bal > 0
+        if st or bal: top1_hold = (st in ('creator_hold', 'hold')) or bal > 0
         ots = _f(ti.get('open_timestamp'))
         if ots > 0: top1_ts, top1_age_src = ots, 'open'
-        if   st == 'creator_hold': top1_status = 'holding'
+        if   st in ('creator_hold', 'hold'): top1_status = 'holding'
         elif 'sell' in st:         top1_status = 'sold_own_bag'
         elif st == 'creator_close':
             # Confirmed on robinhood/PONS: status `creator_close` with balance 0 while the

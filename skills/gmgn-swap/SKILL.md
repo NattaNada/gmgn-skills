@@ -7,7 +7,8 @@ description: >-
   GMGN API. Use when user asks to buy,
   sell, or swap a token, trade from multiple wallets, set a limit order, stop
   loss, take profit, or check order status. This skill SUBMITS the trade — it
-  is the only skill holding a private key, and every buy still ends here. It
+  is one of the two execution skills holding a private key (alongside
+  gmgn-cooking), and every buy still ends here. It
   is not the entry point for a buy that has not been vetted yet: 「帮我买 200u 的
   PENGU」, "buy me $500 of BONK", 「帮我买点 dogwifhat」, 「XX 能不能买」 start at
   gmgn-token-buy, which resolves the name to the one right contract among its
@@ -34,9 +35,9 @@ metadata:
 
 **IMPORTANT: Do NOT guess field names or values. When a field's meaning is unclear, look it up in the Response Fields sections below before using it.**
 
-**⚠️ IPv6 NOT SUPPORTED: If you get a `401` or `403` error and credentials look correct, check for IPv6 immediately: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user immediately: "Please disable IPv6 on your network interface — gmgn-cli commands only work over IPv4."**
+**⚠️ IPv6 NOT SUPPORTED (proxy case only): `src/index.ts` already forces IPv4 for direct connections, so do NOT ask the user to disable IPv6 for a direct connection. Only if the user is behind a proxy and you get a `401` or `403` error with credentials that look correct, check for IPv6: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user: "Please disable IPv6 on your network interface / proxy — gmgn-cli commands only work over IPv4."**
 
-Use the `gmgn-cli` tool to submit a token swap or query an existing order. `GMGN_API_KEY` is always required. `GMGN_PRIVATE_KEY` is required for critical-auth commands such as `swap` and `order` subcommands — except `order quote`, which only requires `GMGN_API_KEY`.
+Use the `gmgn-cli` tool to submit a token swap or query an existing order. `GMGN_API_KEY` is always required. `GMGN_PRIVATE_KEY` is required for critical-auth commands such as `swap` and `order` subcommands — **including `order quote`**: the quote action in `src/commands/swap.ts` calls `getConfig(true)`, which exits if no private key is configured, so a quote cannot run on the API key alone. (The CLI's own `--help` text still claims quote needs no private key; the code wins — quote requires the private key.)
 
 ## Core Concepts
 
@@ -48,9 +49,9 @@ Use the `gmgn-cli` tool to submit a token swap or query an existing order. `GMGN
 
 - **Currency tokens** — Each chain has designated currency tokens (SOL, BNB, ETH, USDC). These are the base assets used to buy other tokens or receive swap proceeds. Their contract addresses are fixed — look them up in the Chain Currencies table, never guess them.
 
-- **Anti-MEV** — MEV (Miner/Maximal Extractable Value) refers to frontrunning and sandwich attacks where bots exploit pending transactions. `--anti-mev` routes the transaction through protected channels to reduce this risk. **Recommended: always enable.** Default: on. **Not supported on `base` chain.**
+- **Anti-MEV** — MEV (Miner/Maximal Extractable Value) refers to frontrunning and sandwich attacks where bots exploit pending transactions. `--anti-mev` routes the transaction through protected channels to reduce this risk. **Recommended: always pass `--anti-mev` explicitly.** There is NO default in the CLI: `src/commands/swap.ts` only sets `is_anti_mev = true` when `--anti-mev` is passed (`if (opts.antiMev) params.is_anti_mev = true`), so omitting the flag means no anti-MEV protection. (The CLI `--help` text says "default true"; the code does not implement a default — always pass the flag.) **Not supported on `base` chain.**
 
-- **Signed auth** — `swap` and most `order` subcommands require both `GMGN_API_KEY` and `GMGN_PRIVATE_KEY`. The private key never leaves the machine — the CLI uses it only for local signing and sends only the resulting signature. Exception: `order quote` only requires `GMGN_API_KEY`.
+- **Signed auth** — `swap` and most `order` subcommands require both `GMGN_API_KEY` and `GMGN_PRIVATE_KEY`. The private key never leaves the machine — the CLI uses it only for local signing and sends only the resulting signature. This includes `order quote`: the quote action calls `getConfig(true)`, which exits without a private key, so quote also requires `GMGN_PRIVATE_KEY`.
 
 - **`order_id` / `status`** — After submitting a swap, the response includes an `order_id`. Use `order get --order-id` to poll for final status. Possible values: `pending` → `processed` → `confirmed` (success) or `failed` / `expired`. Do not report success until status is `confirmed`.
 
@@ -63,6 +64,26 @@ Use the `gmgn-cli` tool to submit a token swap or query an existing order. `GMGN
 - Every `swap`, `multi-swap` and `order strategy create` command submits an on-chain transaction that moves real funds; `order strategy cancel` changes a live order.
 - Transactions cannot be undone once confirmed on-chain.
 - Only use this skill with funds you are willing to trade. Start with small amounts when testing.
+- **No dry-run exists in the CLI** — `gmgn-cli` 1.7.2 has no `--dry-run` flag (verified: no such option in `src/` or `gmgn-cli swap --help`). The only pre-execution preview is the approval-gate order card plus `order quote` (see **Approval Gate (REQUIRED)** below) — never claim a dry-run was performed.
+
+## Approval Gate (REQUIRED — before ANY execution)
+
+Before running `swap`, `multi-swap`, or `order strategy create`, these numbered steps are MANDATORY and cannot be skipped — even if the user already said "don't ask, just buy" / "langsung beli". The user's initial instruction ("buy X") is NOT approval of the final parameters; only an explicit "yes, execute" on the order card below counts.
+
+1. **Run `order quote` first** (it requires `GMGN_PRIVATE_KEY` — see above) and include its result in the order card.
+2. **Show the complete order card** to the user and wait for an explicit reply ("ya, eksekusi" / "yes, execute"). The card must list:
+   - chain, from wallet address;
+   - input token + full contract address, output token + full contract address (copy both addresses from the quote / Chain Currencies table — never from memory);
+   - amount in human-readable units AND in USD if a price is available;
+   - slippage (or `--auto-slippage`), fee/tip (`--priority-fee`, `--tip-fee`, `--gas-price`), anti-MEV on/off (state explicitly whether `--anti-mev` will be passed);
+   - condition orders / auto-sell (`--condition-orders`, `--sell-ratio-type`) if any;
+   - for `multi-swap`: the per-wallet amounts AND the **combined total across all wallets** (up to 100 wallets — show the total, not just per-wallet figures);
+   - for `order strategy create`: order type, sub-order type, trigger/check price, amount-in / amount-in-percent, expiry if any.
+3. **Show the real-funds warning on the card itself**: "⚠️ This executes a REAL, IRREVERSIBLE on-chain transaction moving real funds from the linked wallet. Confirm only if every parameter above is exactly right."
+4. **Wait for the user's explicit confirmation.** Do NOT execute on silence, on the original "buy X" message, or on an implied yes. If the user changes any parameter, rebuild the card and ask again.
+5. **Only then run the command**, exactly as shown on the approved card. One execution per approval — a second swap needs a new card and a new confirmation.
+
+Suggested default guardrails (mention them on the card when no amount was given): start with a small test amount first; keep any single trade within an amount the user explicitly stated.
 
 ## Sub-commands
 
@@ -70,7 +91,7 @@ Use the `gmgn-cli` tool to submit a token swap or query an existing order. `GMGN
 |-------------|-------------|
 | `swap` | Submit a token swap |
 | `multi-swap` | Submit token swaps across multiple wallets concurrently (up to 100) |
-| `order quote` | Get a swap quote (no transaction submitted; exist auth — API Key only, no private key needed) |
+| `order quote` | Get a swap quote (no transaction submitted; signed auth — requires `GMGN_API_KEY` AND `GMGN_PRIVATE_KEY`, see above) |
 | `order get` | Query order status |
 | `gas-price` | Query recommended gas price (low / average / high tiers) for any chain; exist auth (API Key only) |
 | `order strategy create` | Create a limit/strategy order (requires private key) |
@@ -80,6 +101,8 @@ Use the `gmgn-cli` tool to submit a token swap or query an existing order. `GMGN
 ## Supported Chains
 
 `sol` / `bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche`
+
+> `elysium` is **read-only / gas-price-only**: it appears in the `gas-price` chain list (`src/commands/swap.ts`, `gas-price` accepts `elysium`) but NOT in the trade chains above — there is no trading on `elysium` yet (`src/validate.ts`: "elysium … has no trading yet"). Do not attempt a swap, multi-swap, or strategy order on `elysium`.
 
 ## Chain Currencies
 
@@ -94,9 +117,19 @@ Currency tokens are the base/native assets of each chain. They are used to buy o
 | `base` | ETH (native, `0x0000000000000000000000000000000000000000`), USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) |
 | `eth`  | ETH (native, `0x0000000000000000000000000000000000000000`) |
 
+> **This table covers only 4 of the 10 trade chains.** No currency addresses for `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche` were found in the CLI source (`src/`), so this skill does not list them — do NOT invent or guess them. On those 6 chains, resolve a currency address from `token info` or another trusted source and show it to the user for confirmation before using it. `elysium` has no currency resolution at all (read-only / gas-price-only, see above).
+
 ## Prerequisites
 
-`GMGN_API_KEY` must be configured in `~/.config/gmgn/.env`. `GMGN_PRIVATE_KEY` is additionally required for `swap` and `order` subcommands other than `order quote`. The private key must correspond to the wallet bound to the API Key.
+`GMGN_API_KEY` must be configured in `~/.config/gmgn/.env`. `GMGN_PRIVATE_KEY` is additionally required for `swap` and all `order` subcommands, **including `order quote`** (the quote action calls `getConfig(true)` — see above). The private key must correspond to the wallet bound to the API Key.
+
+**IMPORTANT — Credential lookup order:** `gmgn-cli` loads credentials with precedence **shell environment > project `.env` in the current working directory > global `~/.config/gmgn/.env`** (`src/config.ts`: `loadEnvFiles()` loads the local `.env` first, then the global file only fills in what is missing; a local `.env` never overwrites an already-set variable). If credentials appear missing or wrong, check whether a `.env` in the workspace directory is shadowing the global config:
+```bash
+ls -la .env 2>/dev/null && echo "WARNING: local .env is overriding ~/.config/gmgn/.env"
+```
+If a local `.env` exists but lacks `GMGN_API_KEY` / `GMGN_PRIVATE_KEY`, either add them to that file or remove it so the global config is used.
+
+**⚠️ Credential safety — NEVER commit or share credential files:** `~/.config/gmgn/.env` (and any project `.env` / `keypair.pem` holding `GMGN_PRIVATE_KEY`) contains a plaintext private key that can execute trades on the linked wallet. Never commit these files to git, never paste them into chat, tickets, or screenshots, and never send them to anyone. Prefer a **dedicated trading wallet with limited funds** for the key bound to this API key, so a leak cannot drain the user's main holdings. (`src/config.ts` tightens the global `.env` file to mode 0600 and warns when it is group/other-readable — keep it that way.)
 
 - `gmgn-cli` installed globally — if missing, run: `npm install -g gmgn-cli`
 
@@ -122,7 +155,7 @@ When a request returns `429`:
 - Read `X-RateLimit-Reset` from the response headers. It is a Unix timestamp in seconds that marks when the limit is expected to reset.
 - If the response body contains `reset_at` (e.g., `{"code":429,"error":"RATE_LIMIT_BANNED","message":"...","reset_at":1775184222}`), extract `reset_at` — it is the Unix timestamp when the ban lifts (typically 5 minutes). Convert to local time and tell the user exactly when they can retry.
 - `swap` is a real transaction: never loop or auto-submit repeated swap attempts after a `429`. Wait until the reset time before retrying.
-- The CLI may wait and retry once automatically for short cooldowns on read-only commands such as `order quote` and `order get`. If it still fails, stop and tell the user the exact retry time instead of sending more requests.
+- The CLI may wait and retry once automatically for short cooldowns on read-only commands such as `order quote`. If it still fails, stop and tell the user the exact retry time instead of sending more requests. (Note: `order get` is NOT read-only — it uses signed auth via `getConfig(true)`, so it is not in this retry category.)
 - For `RATE_LIMIT_EXCEEDED` or `RATE_LIMIT_BANNED`, repeated requests during the cooldown can extend the ban by 5 seconds each time, up to 5 minutes.
 - On `RATE_LIMIT_BANNED_MAX`, the ban has hit the 5-minute ceiling because requests kept arriving during the cooldown. Stop **all** GMGN calls for this task (not just the failing one) and tell the user the exact reset time; any request before `reset_at` resets the ban to 5 minutes again.
 - On `403 PLAN_UPGRADE_REQUIRED`, the endpoint costs more rate-limit weight than the user's plan capacity, so it can never succeed on this plan — do not retry or wait. Tell the user the endpoint is unavailable on their current plan and show the `upgrade_message` from the response (it contains the upgrade link `https://gmgn.ai/ai?chain=bsc&tab=paid_plans`).
@@ -188,10 +221,10 @@ gmgn-cli swap \
 | `--slippage <n>` | No | all | Slippage tolerance as an integer 0–100, e.g. `30` = 30%. **Mutually exclusive with `--auto-slippage`** — use one or the other. |
 | `--auto-slippage` | No | all | Enable automatic slippage. **Mutually exclusive with `--slippage`.** |
 | `--min-output <n>` | No | all | Minimum output amount |
-| `--anti-mev` | No | sol / bsc / eth | Enable anti-MEV protection — **recommended**; protects against frontrunning and sandwich attacks. Default: on. **Not supported on `base`.** |
+| `--anti-mev` | No | sol / bsc / eth | Enable anti-MEV protection — **recommended; always pass explicitly**. There is NO default in the CLI (`swap.ts` only sets `is_anti_mev` when the flag is passed). **Not supported on `base`.** |
 | `--priority-fee <sol>` | No | `sol` | Priority fee in SOL. Required when using `--condition-orders` on SOL. |
 | `--tip-fee <n>` | No | `sol` / `bsc` | Tip fee (SOL in SOL / BSC in BNB). Required when using `--condition-orders` on SOL. |
-| `--gas-price <gwei>` | No | `bsc` / `base` / `eth` | Gas price in gwei. Required when using `--condition-orders` on BSC. Mutually exclusive with `--gas-level`. |
+| `--gas-price <gwei>` | No | `bsc` / `base` / `eth` | Gas price in **gwei**. Required when using `--condition-orders` on BSC. Mutually exclusive with `--gas-level`. ⚠️ **UNIT TRAP — swap `--gas-price` is GWEI, but gmgn-cooking `--gas-price` is WEI (the cooking CLI passes the value through raw). Never copy a gas-price value between the two skills without converting: 1 gwei = 1,000,000,000 wei. E.g. swap `--gas-price 5` = 5 gwei = 5,000,000,000 wei; the same `5` in cooking would be 5 wei (near-zero → stuck/failed tx).** |
 | `--gas-level <level>` | No | `eth` | Gas price tier: `low` / `average` / `high`. Mutually exclusive with `--gas-price`. |
 | `--auto-fee` | No | `eth` | **Only with `--condition-orders`.** GMGN automatically selects the optimal fee. |
 | `--max-fee-per-gas <n>` | No | `bsc` / `base` / `eth` | EIP-1559 max fee per gas. Defaults to `--gas-price` if omitted (BASE/ETH). |
@@ -372,7 +405,7 @@ gmgn-cli multi-swap \
 | `--anti-mev` | No | sol / bsc / eth | Enable anti-MEV protection. Not supported on `base`. |
 | `--priority-fee <sol>` | No | `sol` | Priority fee in SOL. Required when using `--condition-orders` on SOL. |
 | `--tip-fee <amount>` | No | `sol` / `bsc` | Tip fee (SOL in SOL / BSC in BNB). Required when using `--condition-orders` on SOL. |
-| `--gas-price <gwei>` | No | `bsc` / `base` / `eth` | Gas price in gwei. Required when using `--condition-orders` on BSC. Mutually exclusive with `--gas-level`. |
+| `--gas-price <gwei>` | No | `bsc` / `base` / `eth` | Gas price in **gwei** (⚠️ unit trap: cooking `--gas-price` is WEI — 1 gwei = 1,000,000,000 wei; never copy values between skills without converting). Required when using `--condition-orders` on BSC. Mutually exclusive with `--gas-level`. |
 | `--gas-level <level>` | No | `eth` | Gas price tier: `low` / `average` / `high`. Mutually exclusive with `--gas-price`. |
 | `--auto-fee` | No | `eth` | **Only with `--condition-orders`.** GMGN automatically selects the optimal fee. |
 | `--max-fee-per-gas <amount>` | No | `bsc` / `base` / `eth` | EIP-1559 max fee per gas. Defaults to `--gas-price` if omitted (BASE/ETH). |
@@ -405,7 +438,7 @@ The response `data` is an array — one element per wallet:
 
 ## `order quote` Usage
 
-Get an estimated output amount before submitting a swap. Uses normal auth — only `GMGN_API_KEY` required, no `GMGN_PRIVATE_KEY` needed.
+Get an estimated output amount before submitting a swap. **Requires `GMGN_PRIVATE_KEY`**: the quote action in `src/commands/swap.ts` calls `getConfig(true)`, which exits if no private key is configured — the claim "quote only needs the API key" is WRONG (the CLI `--help` text still repeats it; the code wins). A quote submits no transaction, but it is a signed-auth command, not a read-only one.
 
 ```bash
 gmgn-cli order quote \
@@ -416,6 +449,19 @@ gmgn-cli order quote \
   --amount <input_amount_smallest_unit> \
   --slippage 30
 ```
+
+### `order quote` Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `--chain` | Yes | `sol` / `bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche` |
+| `--from` | Yes | Wallet address |
+| `--input-token` | Yes | Input token contract address |
+| `--output-token` | Yes | Output token contract address |
+| `--amount` | Yes | Input amount (smallest unit) |
+| `--slippage` | Yes | Slippage tolerance (e.g. `30` = 30%). Enforced by the CLI as a `requiredOption` in `src/commands/swap.ts` — a quote without `--slippage` is rejected. |
+
+Always run `order quote` as part of the **Approval Gate (REQUIRED)** above and paste its result into the order card before asking the user to confirm.
 
 ### `order quote` Response Fields
 
@@ -541,14 +587,14 @@ gmgn-cli order strategy create \
 | `--expire-in` | No | all | Order expiry in seconds |
 | `--sell-ratio-type` | No | all | `buy_amount` (default) — when triggered, sells a fixed token amount stored at strategy creation time; `hold_amount` — when triggered, sells a fixed percentage of the position held at trigger time |
 | `--quote-investment` | No | all | Quote token investment amount (`smart_trade`) |
-| `--sell-param` | Yes (`smart_trade`) | all | JSON object of sell-side trade params (slippage, fee, gas, etc.) used when a TP/SL condition fires. **Required for `smart_trade`.** Same fields as the root TradeParam; `slippage` is 0–100 integer. |
+| `--sell-param` | Required by server for `smart_trade` (unverified in CLI — send it always; the CLI does not validate it) | all | JSON object of sell-side trade params (slippage, fee, gas, etc.) used when a TP/SL condition fires. **Required for `smart_trade`.** Same fields as the root TradeParam; `slippage` is 0–100 integer. |
 | `--buy-param` | No | all | JSON object of buy-side trade params override for `smart_trade`. Same fields as root TradeParam; `slippage` is 0–100 integer. |
-| `--slippage` | No | all | Slippage tolerance as an integer 0–100, e.g. `30` = 30%. Mutually exclusive with `--auto-slippage`. Defaults to auto-slippage if neither is set. |
-| `--auto-slippage` | No | all | Enable automatic slippage |
-| `--priority-fee` | No | `sol` | Priority fee in SOL. **Required** for SOL. |
-| `--tip-fee` | No | `sol` / `bsc` | Tip fee (SOL in SOL / BSC in BNB). **Required** for SOL. |
+| `--slippage` | One of `--slippage` / `--auto-slippage` is required (enforced by the CLI — `process.exit(1)` if neither is given) | all | Slippage tolerance as an integer 0–100, e.g. `30` = 30%. Mutually exclusive with `--auto-slippage`. |
+| `--auto-slippage` | One of `--slippage` / `--auto-slippage` is required (enforced by the CLI) | all | Enable automatic slippage |
+| `--priority-fee` | Required by server for SOL (unverified in CLI — send it always on SOL; the CLI does not validate it) | `sol` | Priority fee in SOL. |
+| `--tip-fee` | Required by server for SOL (unverified in CLI — send it always on SOL; the CLI does not validate it) | `sol` / `bsc` | Tip fee (SOL in SOL / BSC in BNB). |
 | `--auto-fee` | No | `eth` | Auto fee mode — GMGN automatically selects the optimal fee. |
-| `--gas-price` | No | `bsc` / `base` / `eth` | Gas price in gwei. **Required** for BSC. Mutually exclusive with `--gas-level`. |
+| `--gas-price` | Required by server for BSC (unverified in CLI — send it always on BSC; the CLI does not validate it) | `bsc` / `base` / `eth` | Gas price in **gwei** (⚠️ unit trap: cooking `--gas-price` is WEI — 1 gwei = 1,000,000,000 wei; never copy values between skills without converting). Mutually exclusive with `--gas-level`. |
 | `--gas-level` | No | `eth` | Gas price tier: `low` / `average` / `high`. Mutually exclusive with `--gas-price`. |
 | `--max-fee-per-gas` | No | `bsc` / `base` / `eth` | EIP-1559 max fee per gas. |
 | `--max-priority-fee-per-gas` | No | `bsc` / `base` / `eth` | EIP-1559 max priority fee per gas. Capped to `--max-fee-per-gas`. |
@@ -737,7 +783,7 @@ gmgn-cli order strategy cancel \
 - `--amount` is in the **smallest unit** (e.g., lamports for SOL)
 - `order strategy create`, `order strategy list`, and `order strategy cancel` use signed auth (require `GMGN_PRIVATE_KEY`)
 - Use `--raw` to get single-line JSON for further processing
-- **Chain restrictions for fee flags** — see the `Chain` column in each parameter table above. `--priority-fee` and `--tip-fee` are SOL/BSC only; `--gas-price`, `--max-fee-per-gas`, `--max-priority-fee-per-gas` are BSC/BASE/ETH only; `--gas-level` and `--auto-fee` are ETH only. The server returns 400 if a chain-restricted flag is sent on the wrong chain. (`gas-price` itself supports every chain: `sol` / `bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche`.)
+- **Chain restrictions for fee flags** — see the `Chain` column in each parameter table above. `--priority-fee` and `--tip-fee` are SOL/BSC only; `--gas-price`, `--max-fee-per-gas`, `--max-priority-fee-per-gas` are BSC/BASE/ETH only; `--gas-level` and `--auto-fee` are ETH only. The server returns 400 if a chain-restricted flag is sent on the wrong chain. (`gas-price` itself supports every chain: `sol` / `bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche` / `elysium` — but `elysium` is read-only / gas-price-only; no trading on `elysium`.)
 - **No per-chain fee bounds** — the OpenAPI layer does not clamp `--priority-fee`, `--tip-fee`, `--gas-price`, `--max-fee-per-gas` or `--max-priority-fee-per-gas` to any minimum or maximum; values are forwarded as-is and the trade backend enforces its global fee ceilings. The server only checks:
   - every fee must be a non-negative number, otherwise 400
   - BSC: `max_fee_per_gas` / `max_priority_fee_per_gas` of `"0"` returns 400
@@ -780,13 +826,14 @@ For full token research before swapping, see [`docs/workflow-token-research.md`]
 
 ## Execution Guidelines
 
+- **[REQUIRED] Approval gate — before ANY execution** — Never run `swap`, `multi-swap`, or `order strategy create` without completing the **Approval Gate (REQUIRED)** above: run `order quote`, show the full order card (including the combined total for `multi-swap`), show the real-funds warning on the card, and wait for the user's explicit "yes, execute". The user's initial "buy X" instruction is NOT approval of the final parameters. One approval covers exactly one execution.
 - **[REQUIRED] Token security check** — Run before every swap. See **Pre-Swap Safety Check (REQUIRED)** section above. Uses exist auth (API Key only — no private key needed for this step).
 - **Currency resolution** — When the user names a currency (SOL/BNB/ETH/USDC) instead of providing an address, look up its address in the Chain Currencies table and apply it automatically — never ask the user for it.
   - Buy ("buy X SOL of TOKEN", "spend 0.5 USDC on TOKEN") → resolve currency to `--input-token`
   - Sell ("sell TOKEN for SOL", "sell 50% of TOKEN to USDC") → resolve currency to `--output-token`
 - **Percentage sell restriction** — `--percent` is ONLY valid when `input_token` is NOT a currency. Do NOT use `--percent` when `input_token` is SOL/BNB/ETH (native) or USDC. This includes: "sell 50% of my SOL", "use 30% of my BNB to buy X", "spend 50% of my USDC on X" — all unsupported. Explain the restriction to the user and ask for an explicit absolute amount instead.
 - **Chain-wallet compatibility** — SOL addresses are incompatible with EVM chains (bsc/base). Warn the user and abort if the address format does not match the chain.
-- **Credential sensitivity** — `GMGN_API_KEY` and `GMGN_PRIVATE_KEY` can directly execute trades on the linked wallet. Never log, display, or expose these values.
+- **Credential sensitivity** — `GMGN_API_KEY` and `GMGN_PRIVATE_KEY` can directly execute trades on the linked wallet. Never log, display, or expose these values. Never commit `~/.config/gmgn/.env`, any project `.env`, or `keypair.pem` to git, and never share them with anyone. Prefer a dedicated trading wallet with limited funds for the key bound to this API key.
 - **Order polling** — After a swap, if `status` is not yet `confirmed` / `failed` / `expired`, poll with `order get` up to 3 times at 5-second intervals before reporting a timeout. Once confirmed, display the trade result using `report.input_amount` and `report.output_amount` (convert from smallest unit using `report.input_token_decimals` / `report.output_token_decimals`), e.g. "Spent 0.1 SOL → received 98.5 USDC" or "Sold 1000 TOKEN → received 0.08 SOL".
 - **Block explorer links** — After a successful swap, display a clickable explorer link for the returned `hash`:
 
@@ -796,3 +843,4 @@ For full token research before swapping, see [`docs/workflow-token-research.md`]
   | bsc   | `https://bscscan.com/tx/<hash>` |
   | base  | `https://basescan.org/tx/<hash>` |
   | eth   | `https://etherscan.io/tx/<hash>` |
+  | arbitrum / hyperevm / robinhood / arc / stable / avalanche | No explorer URL is verified in this skill (no explorer URLs exist in the CLI source). Use the chain's canonical block explorer as linked from that chain's official docs — do NOT guess the URL. Pattern for most EVM explorers: `<explorer-domain>/tx/<hash>`. |

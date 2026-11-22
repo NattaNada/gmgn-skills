@@ -1,7 +1,7 @@
 ---
 name: gmgn-track
-description: Get real-time crypto buy/sell activity from Smart Money wallets, KOL influencer wallets, and personally followed wallets via GMGN API — alpha signals, whale tracking, meme token copy-trading ideas on Solana, BSC, Base, or Ethereum. Also query which tokens a wallet has followed (bookmarked) on GMGN. Use when user asks what smart money or KOLs are buying, wants whale alerts, on-chain alpha, copy-trade signals, or wants to check a wallet's followed tokens. (For a specific wallet address's portfolio, use gmgn-portfolio.)
-argument-hint: "<follow-tokens|follow-wallet|kol|smartmoney> --chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium> [--wallet <wallet_address>]"
+description: Get real-time crypto buy/sell activity from Smart Money wallets, KOL influencer wallets, and personally followed wallets via GMGN API — alpha signals, whale tracking, meme token copy-trading ideas across 11 chains (Solana, BSC, Base, Ethereum, Arbitrum, HyperEVM, Robinhood, Arc, Stable, Avalanche, Elysium). Also query which tokens a wallet has followed (bookmarked) on GMGN. Use when user asks what smart money or KOLs are buying, wants whale alerts, on-chain alpha, copy-trade signals, or wants to check a wallet's followed tokens. (For a specific wallet address's portfolio, use gmgn-portfolio.)
+argument-hint: "<follow-tokens|follow-token-groups|follow-wallet|kol|smartmoney> --chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium> [--wallet <wallet_address>]"
 metadata:
   cliHelp: "gmgn-cli track --help"
 ---
@@ -12,7 +12,7 @@ metadata:
 
 **IMPORTANT: Do NOT guess field names or values. When a field's meaning is unclear, look it up in the Response Fields sections below before using it.**
 
-**⚠️ IPv6 NOT SUPPORTED: If you get a `401` or `403` error and credentials look correct, check for IPv6 immediately: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user immediately: "Please disable IPv6 on your network interface — gmgn-cli commands only work over IPv4."**
+**⚠️ IPv6 (proxy only): gmgn-cli forces IPv4 for direct connections (`src/index.ts` sets `family: 4`), so an IPv6 problem is only plausible when a proxy is configured. If you get a `401` or `403` error, credentials look correct, AND a proxy is in use, check for IPv6: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user immediately: "Please disable IPv6 on your network interface, or bypass the proxy — gmgn-cli commands only work over IPv4."**
 
 Use the `gmgn-cli` tool to query on-chain tracking data based on the user's request.
 
@@ -117,14 +117,14 @@ gmgn-cli track follow-wallet --chain sol --side buy
 # Follow-wallet filtered by USD amount range
 gmgn-cli track follow-wallet --chain sol --min-amount-usd 100 --max-amount-usd 10000
 
-# KOL trade records (SOL, default)
-gmgn-cli track kol --limit 10 --raw
+# KOL trade records on SOL
+gmgn-cli track kol --chain sol --limit 10 --raw
 
 # KOL trade records on SOL, buy only
 gmgn-cli track kol --chain sol --side buy --limit 10 --raw
 
-# Smart Money trade records (SOL, default)
-gmgn-cli track smartmoney --limit 10 --raw
+# Smart Money trade records on SOL
+gmgn-cli track smartmoney --chain sol --limit 10 --raw
 
 # Smart Money trade records, sell only
 gmgn-cli track smartmoney --chain sol --side sell --limit 10 --raw
@@ -206,7 +206,7 @@ Each item in `followings` contains:
 
 | Option | Description |
 |--------|-------------|
-| `--chain <chain>` | Required. Chain: `sol` / `bsc` / `base` / `eth` |
+| `--chain <chain>` | Required. Chain: `sol` / `bsc` / `base` / `eth` / `arbitrum` / `hyperevm` / `robinhood` / `arc` / `stable` / `avalanche` / `elysium` |
 | `--limit <n>` | Page size (1–200, default 100) |
 | `--side <side>` | Filter by trade direction: `buy` / `sell` (client-side filter — applied locally after fetching results) |
 
@@ -238,7 +238,7 @@ Each item in `list` contains:
 | `price` | Token price denominated in quote token at time of trade |
 | `price_usd` | Token price in USD at time of trade |
 | `price_now` | Token current price in USD |
-| `price_change` | Price change ratio since trade time (e.g. `6.66` = +666%) |
+| `price_change` | Price change ratio since trade time (e.g. `6.66` = +566%) |
 | `timestamp` | Unix timestamp of the trade |
 | `is_open_or_close` | `1` = full position open or close; `0` = partial add or reduce |
 | `launchpad` | Launchpad display name (e.g. `Pump.fun`) |

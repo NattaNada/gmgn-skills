@@ -11,7 +11,7 @@ description: >-
   ("这个钱包发盘情况怎么样", "是不是发币方钱包", "dev 信誉怎么样", "is this a token-creator wallet"), or gives a wallet
   address and wants any of these judgments. A one-line recap of the record or next-step advice (复盘,
   一句话总结战绩, 下一步怎么打) goes to gmgn-wallet-review.
-argument-hint: "--chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium> --wallet <wallet_address> [--latency <seconds>] [--slippage <pct>] [--gas <usd>] [--sample <n>]"
+argument-hint: "--chain <sol|bsc|base|eth|arbitrum|hyperevm|robinhood|arc|stable|avalanche|elysium> --wallet <wallet_address> [--lang <zh|en>] [--latency <seconds>] [--slippage <pct>] [--gas <usd>] [--sample <n>]"
 metadata:
   cliHelp: "gmgn-cli portfolio stats --help && gmgn-cli portfolio activity --help && gmgn-cli portfolio created-tokens --help && gmgn-cli token security --help"
 ---
@@ -22,9 +22,16 @@ metadata:
 
 **IMPORTANT: Do NOT guess field names or values. Fields not listed in [Field Reference](#field-reference) below have not been confirmed against the live API — if the script's defensive lookups come back empty for them, degrade gracefully (see [Notes](#notes)) rather than inventing a value.**
 
-**⚠️ IPv6 NOT SUPPORTED: If you get a `401` or `403` error and credentials look correct, check for IPv6 immediately: (1) list all network interfaces and their IPv6 addresses — run `ifconfig | grep inet6` (macOS) or `ip addr show | grep inet6` (Linux); (2) send a test request to `https://ipv6.icanhazip.com` — if the response is an IPv6 address, outbound traffic is going via IPv6. Tell the user immediately: "Please disable IPv6 on your network interface — gmgn-cli commands only work over IPv4."**
+**⚠️ IPv6: only relevant behind a proxy.** `gmgn-cli` forces IPv4 for direct connections
+(`src/index.ts` builds its connector with `family: 4` when no proxy is set), so on a direct
+connection a `401`/`403` is not an IPv6 problem — do not tell the user to change network
+settings. Only when the CLI runs through an HTTP(S) proxy (`HTTPS_PROXY`/`HTTP_PROXY` set,
+where the proxy path does not force IPv4) is IPv6 worth checking: list interfaces
+(`ifconfig | grep inet6` on macOS, `ip addr show | grep inet6` on Linux) and fetch
+`https://ipv6.icanhazip.com` — if an IPv6 address comes back, outbound traffic may be going
+via IPv6, and disabling IPv6 on that interface is the fix to try.
 
-When the user gives a wallet address, extract `--chain` and `--wallet` from their message, then run the analysis script below — it computes all three angles (profitability, copy-tradeability, Dev reputation) from a single shared data pull, regardless of which one the user actually asked about. Also detect the user's language: set `LANG` to `'zh'` if the user wrote in Chinese, `'en'` if in English (default `'zh'`). Ask for `--latency` / `--slippage` / `--gas` only if the user wants a customized backtest — otherwise use the defaults baked into the script. Once the script runs, decide which section to lead with in your reply — see [Framing the Report by Question](#framing-the-report-by-question) below.
+When the user gives a wallet address, extract `--chain` and `--wallet` from their message, then run the analysis script below — it computes all three angles (profitability, copy-tradeability, Dev reputation) from a single shared data pull, regardless of which one the user actually asked about. Also detect the user's language and pass it as `--lang <zh|en>` (default `zh`): set `LANG` to `'zh'` if the user wrote in Chinese, `'en'` if in English. Ask for `--latency` / `--slippage` / `--gas` only if the user wants a customized backtest — otherwise use the defaults baked into the script. Once the script runs, decide which section to lead with in your reply — see [Framing the Report by Question](#framing-the-report-by-question) below.
 
 ## Core Concepts
 
@@ -132,9 +139,12 @@ w = dict(
     avg_buy_usd=(bought_cost / buy if buy else 0.0),
     avg_trade_usd=(realized_profit / sell if sell else 0.0),
     token_num=token_num, winrate=_f(pnl.get('winrate')), dist=dist,
-    avg_hold_s=_f(pnl.get('avg_holding_period')),
     created_token_count=created_token_count,
     identity=common.get('twitter_name') or common.get('name') or common.get('ens') or '',
+    # median_hold_s is filled in §2 from the activity sample (median first-buy→
+    # first-sell gap). pnl_stat.avg_holding_period is NOT read: it counts positions
+    # never sold and measured 1,728×–22,931× larger than the real median round-trip.
+    median_hold_s=0.0,
 )
 
 if trades == 0:
@@ -143,12 +153,14 @@ if trades == 0:
     raise SystemExit(0)
 
 # ── 2. Activity sample (paginated, most-recent-first) ─────
+# `--limit` above 50 silently falls back to 20 rows, so page with `--limit 50`:
+# SAMPLE 200 = 4 pages × 50, max 400 = 8 pages × 50.
 def sample_activity(target):
     target = max(20, min(int(target or 200), 400))
     acts, cursor = [], None
-    for _try in range(4):
+    for _try in range(8):
         args = ['portfolio', 'activity', '--chain', CHAIN, '--wallet', WALLET,
-                '--limit', str(min(100, target - len(acts)))]
+                '--limit', str(min(50, target - len(acts)))]
         if cursor: args += ['--cursor', str(cursor)]
         raw = unwrap(run_cli(args))
         page = raw.get('activities') or []
@@ -195,6 +207,26 @@ for evs in by_tok.values():
                 fast += 1
             last_buy = None
 fast_flip_rate = round(fast / pairs, 4) if pairs else 0.0
+
+# Median round-trip hold: per token, first buy → first sell after it, median across
+# tokens. This replaces pnl_stat.avg_holding_period everywhere below (tags, copy
+# score, display) — the API average counts positions never sold and overstates the
+# real hold by three to four orders of magnitude.
+rt_gaps = []
+for evs in by_tok.values():
+    evs = sorted(evs, key=lambda e: _f(e.get('timestamp')))
+    first_buy = None
+    for e in evs:
+        et = ev_type(e)
+        if et == 'buy' and first_buy is None:
+            first_buy = _f(e.get('timestamp'))
+        elif et == 'sell' and first_buy is not None:
+            gap = _f(e.get('timestamp')) - first_buy
+            if gap > 0:
+                rt_gaps.append(gap)
+            break
+rt_gaps.sort()
+w['median_hold_s'] = rt_gaps[len(rt_gaps) // 2] if rt_gaps else 0.0
 
 gas_vals = [_f(a.get('gas_usd')) for a in acts if _f(a.get('gas_usd')) > 0]
 has_gas_data = bool(gas_vals)
@@ -268,7 +300,7 @@ def add_tag(emoji, zh, en):
 tn = max(1, token_num)
 big_win  = (dist['gt_5'] + dist['x2_5']) / tn
 big_loss = dist['lt_n50'] / tn
-early, flip = summ['entry_under_100k'], summ['fast_flip_rate']
+flip = summ['fast_flip_rate']
 
 if dev is not None:
     pct_created = round(created_token_count / tn * 100)
@@ -286,16 +318,16 @@ if trades >= 2000:
     add_tag("🤖", f"机器人/科学家：7D {trades} 笔，只能机器跟", f"Bot/Quant: {trades} trades in 7D — only a bot can keep up")
 if flip >= 0.3:
     add_tag("⚡", f"闪电手：{round(flip*100)}% 的仓位 5 秒内买卖", f"Flash flipper: {round(flip*100)}% of positions bought & sold within 5s")
-if dev is None and early >= 0.8:
-    add_tag("🎯", f"狙击手：{round(early*100)}% 进场市值 <$100k", f"Sniper: {round(early*100)}% of entries are <$100k mcap")
-if w['avg_hold_s'] >= 5*86400 and trades < 200:
+if dev is None and 0 < summ['median_entry_mcap'] < 100_000:
+    add_tag("🎯", f"狙击手：进场市值中位 {usd(summ['median_entry_mcap'])} <$100k", f"Sniper: median entry mcap {usd(summ['median_entry_mcap'])} <$100k")
+if w['median_hold_s'] >= 5*86400 and trades < 200:
     add_tag("💎", "钻石手：持仓久、下手少", "Diamond hands: holds long, trades rarely")
-if w['avg_buy_usd'] >= 5000:
+if w['avg_buy_usd'] >= 10000:
     add_tag("🐋", f"巨鲸：单笔平均建仓 {usd(w['avg_buy_usd'])}", f"Whale: avg position size {usd(w['avg_buy_usd'])}")
 if dev is None and w['winrate'] >= 0.65 and trades >= 15:
     add_tag("🏆", f"高胜率：{round(w['winrate']*100)}% 的币最终是赚的", f"High win-rate: {round(w['winrate']*100)}% of tokens ended up profitable")
-if 0 < w['avg_hold_s'] < 3600 and flip < 0.3 and trades >= 30:
-    add_tag("🐇", f"快枪手：平均持仓 {fmt_dur(w['avg_hold_s'])}", f"Quick-draw: avg hold {fmt_dur(w['avg_hold_s'])}")
+if 0 < w['median_hold_s'] < 3600 and flip < 0.3 and trades >= 30:
+    add_tag("🐇", f"快枪手：中位往返 {fmt_dur(w['median_hold_s'])}", f"Quick-draw: median round-trip {fmt_dur(w['median_hold_s'])}")
 if dev is None and 0 < summ['median_entry_mcap'] < 30000:
     add_tag("🔦", f"冷门捡漏：中位进场市值仅 {usd(summ['median_entry_mcap'])}", f"Obscure hunter: median entry mcap only {usd(summ['median_entry_mcap'])}")
 if w['realized_profit'] > 20000 and big_loss <= 0.05:
@@ -325,13 +357,13 @@ TRACK_LABELS = dict(tail=_('止损纪律','Stop-loss discipline'), upside=_('盈
 COPY_W = dict(entry=0.22, profit=0.22, hold=0.20, feasible=0.18, edge=0.18)
 entry_f    = _clamp(0.12 + (1 - summ['entry_under_100k']))
 profit_f   = _clamp(w['avg_trade_usd'] / 80.0)
-hold_f     = _clamp((1 - summ['fast_flip_rate'] * 1.6) * _clamp(w['avg_hold_s'] / 172800 + 0.15))
+hold_f     = _clamp((1 - summ['fast_flip_rate'] * 1.6) * _clamp(w['median_hold_s'] / 172800 + 0.15))
 feasible_f = _clamp(1 - w['trades'] / 2500.0)
 edge_f     = _clamp(1 - 0.6 * summ['entry_under_100k'] - 0.6 * summ['fast_flip_rate'])
 copy_facs = dict(entry=entry_f, profit=profit_f, hold=hold_f, feasible=feasible_f, edge=edge_f)
 copy_score = round(100 * sum(COPY_W[k] * v for k, v in copy_facs.items()))
 COPY_LABELS = dict(entry=_('进场市值','Entry mcap'), profit=_('单笔利润空间','Profit per trade'),
-                    hold=_('持仓 vs 延迟','Hold vs latency'), feasible=_('执行可行性','Execution feasibility'),
+                    hold=_('中位往返 vs 延迟','Median round-trip vs latency'), feasible=_('执行可行性','Execution feasibility'),
                     edge=_('优势类型','Edge type'))
 
 # Self-dealing discount: for a dev wallet, entry-timing/win-rate factors are self-authored — steeply
@@ -393,7 +425,7 @@ sec = _("📊 近7天战绩", "📊 7D Trading Stats")
 print(f"━━  {sec}  {'━'*(54-len(sec))}")
 print(f"  {_('已实现盈亏','Realized P&L')} {usd(w['realized_profit'])}   ROI {w['roi']*100:+.1f}%   "
       f"{_('胜率','Win rate')} {w['winrate']*100:.0f}%   {_('笔数','Trades')} {trades} ({buy}{_('买','buy')}/{sell}{_('卖','sell')})")
-print(f"  {_('交易币数','Tokens traded')} {token_num}   {_('均持仓','Avg hold')} {fmt_dur(w['avg_hold_s'])}   "
+print(f"  {_('交易币数','Tokens traded')} {token_num}   {_('中位往返','Median round-trip')} {fmt_dur(w['median_hold_s'])}   "
       f"{_('均单笔建仓','Avg position')} {usd(w['avg_buy_usd'])}")
 print()
 
@@ -440,6 +472,7 @@ if dev is not None:
     print(f"  {ds}/100")
     print(f"  {_('已开外盘','Graduated')} {dev['open_count']}   {_('卡在内盘','Stuck on curve')} {dev['inner_count']}   "
           f"{_('抽样存活率','Sampled survival')} {round((1-dev['rug_rate'])*100)}% ({dev['alive']}/{dev['analyzed']})")
+    print(f"  ⚠️ {_('rug 率按抽样的 tokens[] 计算（created-tokens 截断约 100 条），不是全部发币史', 'Rug rate is computed over the sampled tokens[] array (created-tokens truncates at ~100 rows), not the full launch history')}")
     print(f"  {_('历史最高市值','All-time-high mcap')} {usd(dev['ath_mc'])}")
     if dev['sec_checked']:
         print(f"  {_('最近发币安全扫描','Recent launches security scan')}: {dev['sec_unsafe']}/{dev['sec_checked']} {_('未过检','failed check')}")
@@ -457,7 +490,8 @@ Fields the script reads, confirmed against `portfolio stats` / `portfolio activi
 
 | Source | Field | Meaning |
 |--------|-------|---------|
-| `portfolio stats` | `realized_profit`, `winrate`, `pnl_stat.token_num`, `pnl_stat.avg_holding_period` | Core outcome distribution |
+| `portfolio stats` | `realized_profit`, `winrate`, `pnl_stat.token_num` | Core outcome distribution |
+| `portfolio stats` | `pnl_stat.avg_holding_period` | **Not used** for scoring, tags, or display — it counts positions never sold and measured 1,728×–22,931× larger than the wallet's real median round-trip time. Hold time comes from the median first-buy→first-sell gap in the activity sample instead (see §2 of the script). |
 | `portfolio stats` | `pnl_stat.pnl_gt_5x_num` / `pnl_2x_5x_num` / `pnl_0x_2x_num` / `pnl_nd5_0x_num` / `pnl_lt_nd5_num` | Bucketed P&L distribution: `>500%` / `200–500%` / `0–200%` / `-50–0%` / `<-50%` |
 | `portfolio stats` | `common.created_token_count` | Used to detect a token-creator ("Dev") wallet |
 | `portfolio activity` | `token.address`, `timestamp`, `price_usd` | Used for holding-duration and flip-rate detection |
@@ -491,12 +525,13 @@ Fields the script reads, confirmed against `portfolio stats` / `portfolio activi
 |--------|--------|-------------------|
 | Entry mcap | 22% | Later entries score higher — sub-$100k entries mean you'd be buying after the wallet already has its position |
 | Profit per trade | 22% | Thin average per-trade profit (< ~$30–80) gets eaten by slippage and gas |
-| Hold vs latency | 20% | Penalizes both high 5-second flip rates and very short average holds — you can't react that fast |
+| Hold vs latency | 20% | Penalizes both high 5-second flip rates and very short median round-trip holds — you can't react that fast |
 | Execution feasibility | 18% | Penalizes very high trade counts (bot-tier, > ~1000/week) — no human can keep pace |
 | Edge type | 18% | Speed/scale-driven edges (early entries, fast flips) are not learnable/copyable; selection/timing edges are |
 
 **Dev-reputation score** (0–100, applies only when the wallet is a token creator) — survival-rate driven:
 
+- `rug_rate` is computed over the sampled `tokens[]` array (`portfolio created-tokens` truncates it at ~100 rows), not the wallet's full launch history — treat it as a sample rate; `analyzed` in the output is the sample size. Do not use `len(tokens)` as the total created (use `inner_count + open_count`).
 - Base: `0.25 + 0.55 × survival_rate` (survival = tokens still open with ≥$4,000 liquidity, or `open_ratio` if no per-token data)
 - `− 0.30 ×` penalty for heavy bonding-curve pileup (`inner_count` beyond 50, capping at 1000 — a hallmark of factory/serial-launch wallets)
 - `+ 0.15 ×` bonus for a strong all-time-high launch, gated by survival rate (a factory wallet's one lucky moonshot doesn't count)
